@@ -1,688 +1,222 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>tonkotsu.online</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-  <style>
-    :root{
-      --bg:#0b0d10;
-      --panel:rgba(255,255,255,.02);
-      --stroke:#1c232c;
-      --stroke2:#242c36;
-      --text:#e8edf3;
-      --muted:#9aa7b3;
-      --shadow: 0 18px 50px rgba(0,0,0,.55);
-      --shadow2: 0 10px 30px rgba(0,0,0,.45);
-      --radius:16px;
-      --ease: cubic-bezier(.2,.8,.2,1);
-      --danger:#ff4d4d;
-      --ok:#31d27c;
-      --warn:#ffcc66;
-
-      /* density defaults: COMPACT */
-      --pad: 10px;
-      --font: 12px;
-
-      /* layout */
-      --sidebarW: 280px; /* compact default */
-      --cursorEnabled: 1;
-
-      --pingVol: 0.45;
-    }
-
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      background:var(--bg);
-      color:var(--text);
-      overflow:hidden;
-      font-size: var(--font);
-    }
-
-    /* Custom cursor (toggle with setting) */
-    body.cursorOn{
-      cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><path d='M6 2l16 10-7 2 4 8-3 2-4-8-6 6z' fill='%23e8edf3' fill-opacity='0.92'/></svg>") 4 2, auto;
-    }
-    body.cursorOn button,
-    body.cursorOn a,
-    body.cursorOn .row,
-    body.cursorOn .u,
-    body.cursorOn input,
-    body.cursorOn textarea{
-      cursor: inherit;
-    }
-
-    .bg{
-      position:fixed; inset:0; pointer-events:none;
-      background:
-        radial-gradient(circle at 18% 18%, rgba(255,255,255,.06), transparent 45%),
-        radial-gradient(circle at 78% 75%, rgba(255,255,255,.05), transparent 45%);
-      opacity:.65;
-    }
-    .noise{
-      position:fixed; inset:-30%; pointer-events:none;
-      background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch"/></filter><rect width="220" height="220" filter="url(%23n)" opacity="0.16"/></svg>');
-      mix-blend-mode: overlay;
-      opacity:.22;
-      transform: rotate(8deg);
-    }
-
-    /* App layout */
-    .app{
-      position:relative;
-      height:100%;
-      display:none;
-      gap:10px;
-      padding:10px;
-    }
-    .app.show{display:flex}
-
-    .sidebar,.main{
-      background:var(--panel);
-      border:1px solid var(--stroke);
-      border-radius:var(--radius);
-      box-shadow: var(--shadow2);
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-      min-height:0;
-    }
-    .sidebar{
-      width: var(--sidebarW);
-      min-width: 240px;
-      max-width: 360px;
-    }
-    .main{flex:1; min-width:0}
-
-    .brand{
-      padding:var(--pad);
-      border-bottom:1px solid var(--stroke);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      min-width:0;
-    }
-
-    /* FIX: full title visible */
-    .titleWrap{display:flex; align-items:center; gap:10px; min-width:0; flex:1}
-    .title{
-      font-weight:900;
-      letter-spacing:-0.04em;
-      font-size:16px;
-      white-space:nowrap;
-      overflow:visible;
-      text-overflow:clip;
-      flex:0 0 auto;
-    }
-
-    .badge{
-      font-size:11px;
-      color:var(--muted);
-      border:1px solid var(--stroke2);
-      padding:3px 8px;
-      border-radius:999px;
-      background:rgba(255,255,255,.02);
-      transition: transform .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease);
-      user-select:none;
-      flex:0 0 auto;
-    }
-    .badge:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.25); color:#d7e2ee}
-
-    .userPill{
-      display:flex; align-items:center; gap:8px;
-      padding:5px 9px;
-      border:1px solid var(--stroke2);
-      border-radius:999px;
-      background:rgba(255,255,255,.02);
-      max-width: 140px;
-      flex:0 0 auto;
-    }
-    .meDot{width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 4px rgba(49,210,124,.12)}
-    .meName{font-size:12px; color:#dbe6f1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-
-    .nav{
-      padding:8px;
-      display:flex;
-      gap:8px;
-      border-bottom:1px solid var(--stroke);
-    }
-
-    .btn{
-      appearance:none;
-      border:none;
-      background:rgba(255,255,255,.03);
-      color:var(--text);
-      border:1px solid var(--stroke2);
-      padding:9px 10px;
-      border-radius:12px;
-      font-weight:800;
-      font-size:12px;
-      cursor:pointer;
-      transition: transform .12s var(--ease), border-color .12s var(--ease), background .12s var(--ease);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      min-width:0;
-    }
-    .btn:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.22)}
-    .btn.primary{background:rgba(255,255,255,.08)}
-    .btn.small{padding:7px 10px; border-radius:10px; font-size:12px}
-    .btn.ghost{background:transparent}
-    .btn.danger{border-color:rgba(255,77,77,.35)}
-    .btn:disabled{opacity:.55; cursor:not-allowed; transform:none}
-
-    /* Discord-ish ping badge */
-    .ping{
-      min-width:18px; height:18px;
-      border-radius:999px;
-      background:rgba(255,77,77,.18);
-      border:1px solid rgba(255,77,77,.35);
-      color:#ffd8d8;
-      font-size:11px;
-      font-weight:900;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      padding:0 6px;
-      margin-left:2px;
-    }
-    .ping.show{display:inline-flex}
-
-    .section{
-      padding:10px;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-      overflow:auto;
-      min-height:0;
-    }
-
-    .row{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:9px 10px;
-      border:1px solid var(--stroke);
-      border-radius:14px;
-      background:rgba(255,255,255,.02);
-      transition: transform .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
-      cursor:pointer;
-      user-select:none;
-    }
-    .row:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.20); background: rgba(255,255,255,.03)}
-    .row.muted{opacity:.72}
-    .row.muted .rowSub::after{content:" • muted"; color: rgba(255,77,77,.9)}
-
-    .rowLeft{display:flex; align-items:center; gap:10px; min-width:0}
-    .statusDot{width:9px; height:9px; border-radius:50%; background:#7b8794}
-    .statusDot.on{background:var(--ok); box-shadow:0 0 0 4px rgba(49,210,124,.12)}
-
-    .nameCol{min-width:0; display:flex; flex-direction:column}
-    .rowName{font-size:12px; font-weight:850; color:#e9eff7; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 180px}
-    .rowSub{font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 180px}
-
-    .chatHeader{
-      padding:var(--pad);
-      border-bottom:1px solid var(--stroke);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      min-width:0;
-    }
-    .chatTitle{
-      font-size:13px;
-      font-weight:900;
-      letter-spacing:-0.02em;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width: calc(100vw - 120px);
-    }
-    .chatHint{font-size:11px; color:var(--muted);}
-
-    .chatBox{
-      flex:1;
-      min-height:0;
-      padding:var(--pad);
-      overflow:auto;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-
-    .msg{
-      display:flex;
-      gap:10px;
-      align-items:flex-start;
-      padding:9px 10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.03);
-      transition: transform .14s var(--ease), border-color .14s var(--ease), background .14s var(--ease);
-    }
-    .msg:hover{transform: translateY(-1px) scale(1.01); border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.04)}
-    .bubble{min-width:0; flex:1}
-    .meta{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
-    .u{font-weight:900; font-size:12px; white-space:nowrap; cursor:pointer}
-    .t{font-size:11px; color:var(--muted); white-space:nowrap}
-    .body{margin-top:4px; font-size:12.5px; line-height:1.35; white-space:pre-wrap; word-wrap:break-word}
-
-    .composer{
-      border-top:1px solid var(--stroke);
-      padding:var(--pad);
-      display:flex;
-      gap:10px;
-      background: rgba(0,0,0,.18);
-    }
-    .inputWrap{flex:1; display:flex; flex-direction:column; gap:6px; min-width:0}
-    .inputRow{display:flex; gap:10px; align-items:flex-end}
-
-    textarea{
-      width:100%;
-      resize:none;
-      border-radius:14px;
-      border:1px solid var(--stroke2);
-      background:rgba(255,255,255,.02);
-      color:var(--text);
-      padding:9px 10px;
-      font-family:inherit;
-      font-size:12.5px;
-      outline:none;
-      min-height:40px;
-      max-height:120px;
-      overflow:auto;
-    }
-
-    .cooldown{
-      display:flex; align-items:center; gap:8px;
-      font-size:11px; color:var(--muted);
-      height:14px; user-select:none;
-    }
-    .cdBar{
-      flex:1; height:6px; border-radius:999px;
-      background: rgba(255,255,255,.07);
-      overflow:hidden; border:1px solid rgba(255,255,255,.08);
-    }
-    .cdFill{height:100%; width:0%; background: rgba(255,255,255,.18); transition: width .08s linear;}
-    .cooldown.warn{color: var(--danger)}
-    .cooldown.warn .cdFill{background: rgba(255,77,77,.35)}
-    .shake{animation: shake .36s var(--ease)}
-    @keyframes shake{
-      0%,100%{transform:translateX(0)}
-      20%{transform:translateX(-5px)}
-      40%{transform:translateX(5px)}
-      60%{transform:translateX(-4px)}
-      80%{transform:translateX(4px)}
-    }
-
-    /* Login overlay */
-    .overlay{
-      position:fixed; inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:18px;
-      z-index:50;
-    }
-    .overlay.hidden{display:none}
-
-    .loginCard{
-      width:min(520px, 100%);
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(10,12,15,.78);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      transform: translateY(8px) scale(.98);
-      opacity:0;
-      animation: popIn .55s var(--ease) forwards;
-      backdrop-filter: blur(10px);
-    }
-    @keyframes popIn{to{transform: translateY(0) scale(1); opacity:1}}
-
-    .loginTop{
-      padding:16px;
-      border-bottom:1px solid var(--stroke);
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-    }
-    .bigTitle{
-      font-size:28px;
-      letter-spacing:-0.05em;
-      font-weight:950;
-      line-height:1;
-      margin:0;
-    }
-
-    .tutorial{
-      border:1px solid var(--stroke);
-      background:rgba(255,255,255,.02);
-      border-radius:14px;
-      padding:10px 12px;
-      color:var(--muted);
-      font-size:12px;
-      line-height:1.45;
-    }
-
-    .loginBody{padding:14px 16px 16px; display:flex; flex-direction:column; gap:12px}
-    .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
-    .fieldWrap{position:relative}
-    .field{
-      width:100%;
-      border:1px solid var(--stroke2);
-      background:rgba(255,255,255,.02);
-      color:var(--text);
-      border-radius:14px;
-      padding:10px 12px;
-      font-family:inherit;
-      font-size:13px;
-      outline:none;
-    }
-    .eyeBtn{
-      position:absolute;
-      right:10px;
-      top:50%;
-      transform: translateY(-50%);
-      width:34px; height:34px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.02);
-      color: var(--text);
-      cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition: transform .12s var(--ease), border-color .12s var(--ease), background .12s var(--ease);
-    }
-    .eyeBtn:hover{transform: translateY(-50%) scale(1.02); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.04)}
-
-    .loginActions{display:flex; gap:10px}
-    .loginActions .btn{flex:1}
-
-    /* Loading */
-    .loading{
-      position:fixed; inset:0;
-      z-index:60;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      background:rgba(0,0,0,.65);
-      backdrop-filter: blur(10px);
-    }
-    .loading.show{display:flex}
-    .loader{
-      width:min(520px, 100%);
-      border:1px solid var(--stroke);
-      border-radius:18px;
-      background:rgba(12,14,18,.75);
-      box-shadow: var(--shadow);
-      padding:16px;
-      overflow:hidden;
-      transform: translateY(10px);
-      opacity:0;
-      animation: popIn .4s var(--ease) forwards;
-    }
-    .prog{margin-top:12px; height:10px; border-radius:999px; background: rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.08); overflow:hidden}
-    .prog > div{height:100%; width:10%; background: rgba(255,255,255,.18); animation: loadMove 1.25s ease-in-out infinite}
-    @keyframes loadMove{0%{transform: translateX(-40%); width:20%} 50%{transform: translateX(180%); width:35%} 100%{transform: translateX(520%); width:20%}}
-
-    /* Modal popup */
-    .modalBack{
-      position:fixed; inset:0;
-      background: rgba(0,0,0,.55);
-      backdrop-filter: blur(10px);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      padding:18px;
-      z-index:80;
-    }
-    .modalBack.show{display:flex}
-    .modal{
-      width:min(560px, 100%);
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background:rgba(12,14,18,.86);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      transform: translateY(10px) scale(.98);
-      opacity:0;
-      animation: modalIn .32s var(--ease) forwards;
-    }
-    @keyframes modalIn{to{transform: translateY(0) scale(1); opacity:1}}
-    .modalTop{
-      padding:14px;
-      border-bottom:1px solid var(--stroke);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-    }
-    .modalTitle{font-weight:950; letter-spacing:-0.03em}
-    .modalBody{
-      padding:14px;
-      max-height:70vh;
-      overflow:auto;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
-
-    /* Toasts (popups, no alerts) */
-    .toasts{
-      position:fixed;
-      right:12px;
-      bottom:12px;
-      z-index:90;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      pointer-events:none;
-    }
-    .toast{
-      width: min(360px, calc(100vw - 24px));
-      border:1px solid var(--stroke);
-      background: rgba(12,14,18,.88);
-      border-radius:16px;
-      box-shadow: var(--shadow2);
-      padding:10px 12px;
-      display:flex;
-      gap:10px;
-      align-items:flex-start;
-      transform: translateY(10px);
-      opacity:0;
-      animation: toastIn .28s var(--ease) forwards;
-      pointer-events:auto;
-    }
-    @keyframes toastIn{to{transform: translateY(0); opacity:1}}
-    .toastDot{width:10px; height:10px; border-radius:50%; background: #fff; margin-top:5px; opacity:.9}
-    .toastTitle{font-weight:950; font-size:12px; margin:0}
-    .toastMsg{font-size:12px; color:var(--muted); margin-top:2px; line-height:1.35}
-
-    /* Footer: Ko-fi UNDER everything, with all rights reserved */
-    .footer{
-      position:fixed;
-      left:12px;
-      bottom:12px;
-      z-index:20;
-      color: rgba(232,237,243,.75);
-      font-size:12px;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      user-select:none;
-      max-width: calc(100vw - 24px);
-    }
-    .footer a{color: rgba(232,237,243,.9); text-decoration:none; border-bottom:1px solid rgba(232,237,243,.18); width:max-content}
-    .footer a:hover{border-bottom-color: rgba(232,237,243,.45)}
-
-    .sideBottom{
-      margin-top:auto;
-      padding:10px;
-      border-top:1px solid var(--stroke);
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .stack{display:flex; gap:8px}
-    .stack .btn{flex:1}
-
-    @media (max-width: 920px){
-      body{overflow:auto}
-      .app{flex-direction:column; height:auto; min-height:100%;}
-      .sidebar{width:100%; min-width:0}
-      .main{width:100%}
-      .footer{position:static; padding:10px 12px}
-    }
-
-    .reduceMotion *{animation:none !important; transition:none !important}
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tonkotsu</title>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
+<body>
+  <div id="bg"></div>
+  <div id="cursorTrail" class="cursor-trail" aria-hidden="true"></div>
 
-<body class="cursorOn">
-  <div class="bg"></div>
-  <div class="noise"></div>
+  <!-- Centered app card -->
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandDot"></div>
+        <div class="brandText">
+          <div class="brandName">tonkotsu</div>
+          <div class="brandSub" id="brandSub">chat</div>
+        </div>
+      </div>
 
-  <!-- Login Overlay -->
-  <div id="loginOverlay" class="overlay">
-    <div class="loginCard">
-      <div class="loginTop">
-        <div style="min-width:0">
-          <h1 class="bigTitle">tonkotsu.online</h1>
-          <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
-            <div class="badge">beta</div>
-            <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-              global chat + dms + groups
+      <div class="topActions">
+        <button class="iconBtn" id="inboxBtn" title="Inbox">
+          <span class="iconBell" aria-hidden="true"></span>
+          <span class="badge" id="inboxBadge" hidden>0</span>
+        </button>
+
+        <button class="iconBtn" id="settingsBtn" title="Settings">
+          <span class="iconGear" aria-hidden="true"></span>
+        </button>
+
+        <div class="mePill" id="mePill" title="Profile">
+          <span id="meName">Guest0000</span>
+          <span class="miniBadge" id="meLevel" hidden>Lv 1</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- LEFT -->
+      <aside class="sidebar">
+        <div class="panel">
+          <div class="panelTitle">Messages</div>
+          <div class="tabs">
+            <button class="tabBtn active" data-view="global" id="tabGlobal">
+              Global
+            </button>
+            <button class="tabBtn" data-view="dms" id="tabDMs">
+              DMs <span class="pill" id="dmPill" hidden>0</span>
+            </button>
+            <button class="tabBtn" data-view="groups" id="tabGroups">
+              GCs <span class="pill" id="gcPill" hidden>0</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panelTitle">Online</div>
+          <div class="list" id="onlineList"></div>
+        </div>
+
+        <footer class="sideFooter">
+          <a class="kofi" href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">
+            Support on Ko-fi
+          </a>
+          <div class="copyright">© <span id="year"></span> tonkotsu — All rights reserved.</div>
+        </footer>
+      </aside>
+
+      <!-- RIGHT -->
+      <section class="content">
+        <!-- LOGIN CARD (shown when logged out) -->
+        <div class="card loginCard" id="loginCard">
+          <div class="cardTitle">Welcome</div>
+          <div class="cardSub">Login or continue as guest</div>
+
+          <div class="formRow">
+            <input id="username" class="input" placeholder="Username" autocomplete="username" />
+          </div>
+
+          <div class="formRow passwordRow">
+            <input id="password" class="input" type="password" placeholder="Password" autocomplete="current-password" />
+            <button class="eyeBtn" id="togglePw" title="Show/Hide password" aria-label="Show/Hide password">
+              <!-- simple eye icon -->
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M12 5C6.5 5 2.1 8.4 1 12c1.1 3.6 5.5 7 11 7s9.9-3.4 11-7c-1.1-3.6-5.5-7-11-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="formRow twoCol">
+            <button class="btn primary" id="loginBtn">Login / Register</button>
+            <button class="btn" id="guestBtn">Continue as Guest</button>
+          </div>
+
+          <div class="hint" id="loginHint"></div>
+        </div>
+
+        <!-- CHAT AREA -->
+        <div class="card chatCard" id="chatCard" hidden>
+          <div class="chatHeader">
+            <div>
+              <div class="chatTitle" id="chatTitle">Global</div>
+              <div class="chatSubtitle" id="chatSubtitle">Public chat</div>
+            </div>
+
+            <div class="xpWrap" id="xpWrap" hidden>
+              <div class="xpTop">
+                <span class="xpLabel" id="xpLabel">Level 1</span>
+                <span class="xpNums" id="xpNums">0 / 120</span>
+              </div>
+              <div class="xpBar">
+                <div class="xpFill" id="xpFill" style="width:0%"></div>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="badge">v1</div>
-      </div>
 
-      <div class="loginBody">
-        <div class="tutorial">
-          <b style="color:#e9eff7">How it works</b><br>
-          • Leave fields blank to join as <b>Guest</b> (limited).<br>
-          • Use <b>username + password</b> together to save your account.<br>
-          • If you find issues, DM <b>fishy_x1</b> on Discord.
-        </div>
+          <div class="messages" id="messages"></div>
 
-        <div class="grid2">
-          <input id="username" class="field" placeholder="Username" autocomplete="username" />
-          <div class="fieldWrap">
-            <input id="password" class="field" placeholder="Password" type="password" autocomplete="current-password" style="padding-right:48px" />
-            <button class="eyeBtn" id="togglePass" type="button" title="Show/Hide password">👁</button>
+          <div class="composer">
+            <input class="input" id="messageInput" placeholder="Type a message..." />
+            <button class="btn primary" id="sendBtn">Send</button>
           </div>
         </div>
-
-        <div class="loginActions">
-          <button class="btn primary" id="joinBtn">Join</button>
-          <button class="btn" id="guestBtn">Join as Guest</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Loading Screen -->
-  <div id="loading" class="loading">
-    <div class="loader">
-      <div style="font-weight:950;letter-spacing:-0.03em">Entering tonkotsu.online</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:6px" id="loaderSub">syncing…</div>
-      <div class="prog"><div></div></div>
-    </div>
-  </div>
-
-  <!-- Main App -->
-  <div id="app" class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="titleWrap">
-          <div class="title">tonkotsu.online</div>
-          <div class="badge">beta</div>
-        </div>
-
-        <div class="userPill" id="mePill" style="display:none">
-          <div class="meDot"></div>
-          <div class="meName" id="meName">—</div>
-        </div>
-      </div>
-
-      <div class="nav">
-        <button class="btn primary" id="tabGlobal">Global</button>
-        <button class="btn" id="tabMessages">Messages <span class="ping" id="msgPing">0</span></button>
-        <button class="btn" id="tabInbox">Inbox <span class="ping" id="inboxPing">0</span></button>
-      </div>
-
-      <div class="section" id="sideSection"></div>
-
-      <div class="sideBottom">
-        <div class="stack">
-          <button class="btn" id="settingsBtn">Settings</button>
-          <button class="btn" id="logoutBtn">Log out</button>
-          <button class="btn" id="loginBtn" style="display:none">Log in</button>
-        </div>
-      </div>
-    </aside>
-
-    <main class="main">
-      <div class="chatHeader">
-        <div style="min-width:0">
-          <div class="chatTitle" id="chatTitle">Global chat</div>
-          <div class="chatHint" id="chatHint">shared with everyone online</div>
-        </div>
-        <button class="btn small ghost" id="backBtn" style="display:none">Back</button>
-      </div>
-
-      <div class="chatBox" id="chatBox"></div>
-
-      <div class="composer">
-        <div class="inputWrap">
-          <div class="cooldown" id="cooldownRow" style="display:none">
-            <div style="width:52px" id="cooldownText">0.0s</div>
-            <div class="cdBar"><div class="cdFill" id="cdFill"></div></div>
-          </div>
-
-          <div class="inputRow">
-            <textarea id="message" rows="1" placeholder="Type a message…"></textarea>
-            <button class="btn small primary" id="sendBtn">Send</button>
-          </div>
-        </div>
-      </div>
+      </section>
     </main>
   </div>
 
-  <!-- Modal -->
-  <div class="modalBack" id="modalBack">
-    <div class="modal" role="dialog" aria-modal="true">
-      <div class="modalTop">
-        <div class="modalTitle" id="modalTitle">Popup</div>
-        <!-- SINGLE close button only -->
-        <button class="btn small ghost" id="modalClose">Close</button>
+  <!-- Modals -->
+  <div class="modalOverlay" id="overlay" hidden></div>
+
+  <div class="modal" id="settingsModal" hidden>
+    <div class="modalHeader">
+      <div class="modalTitle">Settings</div>
+      <button class="iconBtn" id="closeSettings" title="Close"><span class="iconX"></span></button>
+    </div>
+
+    <div class="modalBody">
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Theme</div>
+          <div class="settingDesc">Minimal dark by default.</div>
+        </div>
+        <select id="themeSelect" class="select">
+          <option value="dark">dark</option>
+          <option value="vortex">vortex</option>
+          <option value="abyss">abyss</option>
+          <option value="carbon">carbon</option>
+        </select>
       </div>
-      <div class="modalBody" id="modalBody"></div>
+
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Compactness</div>
+          <div class="settingDesc">Tighten spacing + font scale.</div>
+        </div>
+        <input id="density" class="range" type="range" min="0" max="1" step="0.01" />
+      </div>
+
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Sidebar width</div>
+          <div class="settingDesc">Make left panel narrower/wider.</div>
+        </div>
+        <input id="sidebar" class="range" type="range" min="0.16" max="0.32" step="0.01" />
+      </div>
+
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Custom cursor</div>
+          <div class="settingDesc">Dynamic cursor + short trail.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="customCursor" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Ping sound</div>
+          <div class="settingDesc">Play a clean ping for DMs/GCs/inbox.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="pingSound" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="settingRow">
+        <div class="settingText">
+          <div class="settingName">Ping volume</div>
+          <div class="settingDesc">Smooth slider.</div>
+        </div>
+        <input id="pingVolume" class="range" type="range" min="0" max="1" step="0.01" />
+      </div>
     </div>
   </div>
 
-  <!-- Toasts -->
-  <div class="toasts" id="toasts"></div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <div>© <span id="year"></span> tonkotsu.online. All rights reserved.</div>
-    <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">Support on Ko-fi</a>
+  <div class="modal" id="inboxModal" hidden>
+    <div class="modalHeader">
+      <div class="modalTitle">Inbox</div>
+      <button class="iconBtn" id="closeInbox" title="Close"><span class="iconX"></span></button>
+    </div>
+    <div class="modalBody">
+      <div class="inboxSection">
+        <div class="sectionTitle">Friend requests</div>
+        <div id="friendRequests"></div>
+      </div>
+      <div class="inboxSection">
+        <div class="sectionTitle">Group chat invites</div>
+        <div id="groupInvites"></div>
+      </div>
+    </div>
   </div>
+
+  <div class="toastHost" id="toastHost"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/script.js"></script>
