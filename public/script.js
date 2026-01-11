@@ -1,1445 +1,625 @@
+/* global io */
 const socket = io();
-const $ = (id) => document.getElementById(id);
 
-// UI
-const loginOverlay = $("loginOverlay");
-const loading = $("loading");
-const app = $("app");
+// ---- DOM ----
+const yearEl = document.getElementById("year");
+yearEl.textContent = String(new Date().getFullYear());
 
-const usernameEl = $("username");
-const passwordEl = $("password");
-const joinBtn = $("joinBtn");
-const guestBtn = $("guestBtn");
-const togglePass = $("togglePass");
+const loginCard = document.getElementById("loginCard");
+const chatCard = document.getElementById("chatCard");
+const loginHint = document.getElementById("loginHint");
 
-const mePill = $("mePill");
-const meName = $("meName");
+const usernameEl = document.getElementById("username");
+const passwordEl = document.getElementById("password");
+const loginBtn = document.getElementById("loginBtn");
+const guestBtn = document.getElementById("guestBtn");
+const togglePw = document.getElementById("togglePw");
 
-const tabGlobal = $("tabGlobal");
-const tabMessages = $("tabMessages");
-const tabInbox = $("tabInbox");
-const msgPing = $("msgPing");
-const inboxPing = $("inboxPing");
-const sideSection = $("sideSection");
+const tabGlobal = document.getElementById("tabGlobal");
+const tabDMs = document.getElementById("tabDMs");
+const tabGroups = document.getElementById("tabGroups");
+const dmPill = document.getElementById("dmPill");
+const gcPill = document.getElementById("gcPill");
 
-const chatTitle = $("chatTitle");
-const chatHint = $("chatHint");
-const backBtn = $("backBtn");
+const onlineList = document.getElementById("onlineList");
+const messagesEl = document.getElementById("messages");
+const messageInput = document.getElementById("messageInput");
+const sendBtn = document.getElementById("sendBtn");
 
-const chatBox = $("chatBox");
-const messageEl = $("message");
-const sendBtn = $("sendBtn");
+const chatTitle = document.getElementById("chatTitle");
+const chatSubtitle = document.getElementById("chatSubtitle");
 
-const cooldownRow = $("cooldownRow");
-const cooldownText = $("cooldownText");
-const cdFill = $("cdFill");
+const inboxBtn = document.getElementById("inboxBtn");
+const inboxBadge = document.getElementById("inboxBadge");
+const settingsBtn = document.getElementById("settingsBtn");
+const mePill = document.getElementById("mePill");
+const meName = document.getElementById("meName");
+const meLevel = document.getElementById("meLevel");
 
-const settingsBtn = $("settingsBtn");
-const logoutBtn = $("logoutBtn");
-const loginBtn = $("loginBtn");
+const overlay = document.getElementById("overlay");
+const settingsModal = document.getElementById("settingsModal");
+const closeSettings = document.getElementById("closeSettings");
+const inboxModal = document.getElementById("inboxModal");
+const closeInbox = document.getElementById("closeInbox");
 
-const modalBack = $("modalBack");
-const modalTitle = $("modalTitle");
-const modalBody = $("modalBody");
-const modalClose = $("modalClose");
+const themeSelect = document.getElementById("themeSelect");
+const densityRange = document.getElementById("density");
+const sidebarRange = document.getElementById("sidebar");
+const customCursorToggle = document.getElementById("customCursor");
+const pingSoundToggle = document.getElementById("pingSound");
+const pingVolumeRange = document.getElementById("pingVolume");
 
-const toasts = $("toasts");
+const xpWrap = document.getElementById("xpWrap");
+const xpLabel = document.getElementById("xpLabel");
+const xpNums = document.getElementById("xpNums");
+const xpFill = document.getElementById("xpFill");
 
-// State
-let me = null;
-let isGuest = false;
-let token = localStorage.getItem("tonkotsu_token") || null;
+const friendRequestsEl = document.getElementById("friendRequests");
+const groupInvitesEl = document.getElementById("groupInvites");
 
-let onlineUsers = [];
+const toastHost = document.getElementById("toastHost");
+
+// ---- State ----
+let me = { username: null, guest: true, token: null };
+let view = { type: "global", withUser: null, groupId: null };
 let settings = {
   theme: "dark",
-  density: 0.15,      // compact default
-  sidebar: 0.20,      // narrow default
+  density: 0.15,
+  sidebar: 0.22,
   hideMildProfanity: false,
   customCursor: true,
   pingSound: true,
   pingVolume: 0.45
 };
-let social = { friends: [], incoming: [], outgoing: [], blocked: [], groupInvites: [] };
-let xp = null; // guests: null
+let lastXP = null;
 
-let view = { type: "global", id: null }; // global | dm | group
-let currentDM = null;
-let currentGroupId = null;
-
-let globalCache = [];
-let dmCache = new Map();        // user -> msgs
-let groupMeta = new Map();      // gid -> {id,name,owner,members[]}
-let groupCache = new Map();     // gid -> msgs
-
-let cooldownUntil = 0;
-
-// Mute memory (client)
-let muted = JSON.parse(localStorage.getItem("tonkotsu_muted") || "{}"); // { global:true, dm:{u:true}, group:{gid:true} }
-if(!muted || typeof muted !== "object") muted = {};
-muted.dm = muted.dm || {};
-muted.group = muted.group || {};
-
-// mild profanity list (allowed but optionally hidden client-side)
-const MILD_WORDS = ["fuck","fucking","shit","shitty","asshole","bitch","bastard","dick","pussy"];
-const MILD_RX = new RegExp(`\\b(${MILD_WORDS.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")).join("|")})\\b`, "ig");
-
-// Hard filter placeholder from server
-function isServerHiddenText(t){
-  return t === "__HIDDEN_BY_FILTER__";
-}
-
-// ---------- THEMES ----------
-const THEMES = {
-  dark:   { bg:"#0b0d10", panel:"rgba(255,255,255,.02)", stroke:"#1c232c", stroke2:"#242c36", text:"#e8edf3", muted:"#9aa7b3" },
-  vortex: { bg:"#070913", panel:"rgba(120,140,255,.06)", stroke:"#1a2240", stroke2:"#28305c", text:"#eaf0ff", muted:"#9aa7d6" },
-  abyss:  { bg:"#060a0b", panel:"rgba(80,255,220,.05)",  stroke:"#12312c", stroke2:"#1c3f37", text:"#e8fff9", muted:"#8abfb3" },
-  carbon: { bg:"#0c0d0e", panel:"rgba(255,255,255,.035)", stroke:"#272a2e", stroke2:"#343840", text:"#f2f4f7", muted:"#a0a8b3" },
-};
-
-function applyTheme(name){
-  const t = THEMES[name] || THEMES.dark;
-  const r = document.documentElement.style;
-  r.setProperty("--bg", t.bg);
-  r.setProperty("--panel", t.panel);
-  r.setProperty("--stroke", t.stroke);
-  r.setProperty("--stroke2", t.stroke2);
-  r.setProperty("--text", t.text);
-  r.setProperty("--muted", t.muted);
-}
-
-function applyDensity(val){
-  const v = Math.max(0, Math.min(1, Number(val)));
-  // tighter and truly compact
-  const pad = Math.round(8 + v * 12);     // 8..20
-  const font = Math.round(11 + v * 3);    // 11..14
-  const r = document.documentElement.style;
-  r.setProperty("--pad", `${pad}px`);
-  r.setProperty("--font", `${font}px`);
-}
-
-function applySidebarWidth(val){
-  const v = Math.max(0, Math.min(1, Number(val)));
-  const w = Math.round(240 + v * 140); // 240..380
-  document.documentElement.style.setProperty("--sidebarW", `${w}px`);
-}
-
-function applyCursor(enabled){
-  const on = !!enabled;
-  document.body.classList.toggle("cursorOn", on);
-}
-
-// ---------- helpers ----------
-function now(){ return Date.now(); }
-function clamp(n,a,b){ return Math.max(a, Math.min(b,n)); }
-
-function escapeHtml(s){
-  return String(s || "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
-function toast(title, msg){
-  const d = document.createElement("div");
-  d.className = "toast";
-  d.innerHTML = `
-    <div class="toastDot"></div>
-    <div>
-      <div class="toastTitle">${escapeHtml(title)}</div>
-      <div class="toastMsg">${escapeHtml(msg)}</div>
-    </div>
-  `;
-  toasts.appendChild(d);
-  setTimeout(() => { d.style.opacity="0"; d.style.transform="translateY(10px)"; }, 2600);
-  setTimeout(() => d.remove(), 3050);
-}
-
-function showLoading(text="syncing…"){
-  $("loaderSub").textContent = text;
-  loading.classList.add("show");
-}
-function hideLoading(){
-  loading.classList.remove("show");
-}
-
-function openModal(title, html){
-  modalTitle.textContent = title;
-  modalBody.innerHTML = html;
-  modalBack.classList.add("show");
-}
-function closeModal(){
-  modalBack.classList.remove("show");
-}
-modalClose.addEventListener("click", closeModal);
-modalBack.addEventListener("click", (e)=>{ if(e.target===modalBack) closeModal(); });
-
-document.getElementById("year").textContent = String(new Date().getFullYear());
-
-// ---------- ping sound ----------
+// Minimal ping
 let audioCtx = null;
-function beep(){
-  if(!settings?.pingSound) return;
-  const vol = Number(settings?.pingVolume ?? 0.45);
-  if(!(vol > 0)) return;
+function ping() {
+  if (!settings.pingSound) return;
+  const vol = Math.max(0, Math.min(1, settings.pingVolume ?? 0.45));
 
-  try{
+  try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = audioCtx;
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
 
-    const o1 = ctx.createOscillator();
-    const o2 = ctx.createOscillator();
-    const g = ctx.createGain();
+    // "good ping": short, clean, slightly musical
+    o.type = "sine";
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.exponentialRampToValueAtTime(660, t + 0.06);
 
-    // a nice soft "discord-ish" ping (two tones)
-    o1.type = "sine";
-    o2.type = "triangle";
-    o1.frequency.value = 660;
-    o2.frequency.value = 990;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.15 * vol + 0.0001, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
 
-    g.gain.value = 0.0001;
-    g.gain.exponentialRampToValueAtTime(0.08 * vol, ctx.currentTime + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.20);
+    o.connect(g);
+    g.connect(audioCtx.destination);
 
-    o1.connect(g); o2.connect(g);
-    g.connect(ctx.destination);
-
-    o1.start(); o2.start();
-    o1.stop(ctx.currentTime + 0.21);
-    o2.stop(ctx.currentTime + 0.21);
-  }catch(_){}
+    o.start(t);
+    o.stop(t + 0.12);
+  } catch {}
 }
 
-// ---------- password eye ----------
-togglePass.addEventListener("click", () => {
-  const isPw = passwordEl.type === "password";
-  passwordEl.type = isPw ? "text" : "password";
-  togglePass.textContent = isPw ? "🙈" : "👁";
+// ---- Cursor + Trail (dynamic) ----
+const trailHost = document.getElementById("cursorTrail");
+let trailEnabled = true;
+let trailNodes = [];
+let mouse = { x: 0, y: 0 };
+let lastMove = 0;
+
+function setTrailEnabled(on) {
+  trailEnabled = !!on;
+  trailHost.style.display = on ? "block" : "none";
+  document.body.style.cursor = on ? "none" : "default";
+}
+
+function spawnDot(x, y) {
+  const dot = document.createElement("div");
+  dot.className = "cursorDot";
+  dot.style.left = `${x}px`;
+  dot.style.top = `${y}px`;
+  dot.style.opacity = "1";
+  trailHost.appendChild(dot);
+  trailNodes.push({ el: dot, born: performance.now() });
+  if (trailNodes.length > 18) {
+    const old = trailNodes.shift();
+    old.el.remove();
+  }
+}
+window.addEventListener("mousemove", (e) => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  if (!trailEnabled) return;
+
+  const now = performance.now();
+  // short + fast trail: throttle a bit
+  if (now - lastMove > 12) {
+    lastMove = now;
+    spawnDot(mouse.x, mouse.y);
+  }
 });
 
-// ---------- cooldown ----------
-function cooldownSeconds(){ return isGuest ? 5 : 3; }
-function canSend(){ return now() >= cooldownUntil; }
-
-function startCooldown(){
-  const secs = cooldownSeconds();
-  cooldownUntil = now() + secs*1000;
-  cooldownRow.style.display = "flex";
-  updateCooldown();
-}
-function updateCooldown(){
-  const msLeft = cooldownUntil - now();
-  const total = cooldownSeconds()*1000;
-  const p = clamp(1 - msLeft/total, 0, 1);
-  cdFill.style.width = (p*100)+"%";
-
-  if(msLeft <= 0){
-    cooldownRow.style.display="none";
-    cooldownRow.classList.remove("warn");
-    return;
-  }
-  cooldownText.textContent = (msLeft/1000).toFixed(1)+"s";
-  requestAnimationFrame(updateCooldown);
-}
-function cooldownWarn(){
-  cooldownRow.style.display="flex";
-  cooldownRow.classList.add("warn","shake");
-  setTimeout(()=>cooldownRow.classList.remove("shake"), 380);
-  setTimeout(()=>cooldownRow.classList.remove("warn"), 900);
-}
-
-// ---------- view switching ----------
-function setView(type, id=null){
-  view = { type, id };
-  socket.emit("view:set", view);
-
-  if(type==="global"){
-    chatTitle.textContent="Global chat";
-    chatHint.textContent="shared with everyone online";
-    backBtn.style.display="none";
-  } else if(type==="dm"){
-    chatTitle.textContent=`DM — ${id}`;
-    chatHint.textContent="private messages";
-    backBtn.style.display="inline-flex";
-  } else if(type==="group"){
-    const meta = groupMeta.get(id);
-    chatTitle.textContent = meta ? `Group — ${meta.name}` : "Group";
-    chatHint.textContent="group chat";
-    backBtn.style.display="inline-flex";
-  }
-}
-
-backBtn.addEventListener("click", ()=> openGlobal(true));
-
-// ---------- filtering ----------
-function maybeHideMild(text){
-  if (!settings?.hideMildProfanity) return text;
-  return String(text).replace(MILD_RX, "•••");
-}
-
-function isBlockedUser(u){
-  return !!social?.blocked?.includes(u);
-}
-
-function renderBodyText(scope, who, text){
-  // Hard filter placeholder
-  if(isServerHiddenText(text)) return "Message hidden (filtered).";
-
-  // Block behavior (global + dm + group)
-  if(isBlockedUser(who)) return "Message hidden (blocked user).";
-
-  // Mild filter optional
-  return maybeHideMild(text);
-}
-
-// ---------- message rendering ----------
-function fmtTime(ts){
-  const d = new Date(ts);
-  if(!Number.isFinite(d.getTime())) return null;
-  const h = String(d.getHours()).padStart(2,"0");
-  const m = String(d.getMinutes()).padStart(2,"0");
-  return `${h}:${m}`;
-}
-
-function addMessageToUI({ user, text, ts }, { scope="global", from=null } = {}){
-  const t = fmtTime(ts);
-  if(!t) return;
-
-  const who = scope==="dm" ? from : user;
-  const bodyText = renderBodyText(scope, who, text);
-
-  const row = document.createElement("div");
-  row.className="msg";
-  row.innerHTML = `
-    <div class="bubble">
-      <div class="meta">
-        <div class="u" data-user="${escapeHtml(who)}">${escapeHtml(who)}${(who===me?" (You)":"")}</div>
-        <div class="t">${t}</div>
-      </div>
-      <div class="body">${escapeHtml(bodyText)}</div>
-    </div>
-  `;
-
-  // click username -> profile popup
-  row.querySelector(".u").addEventListener("click", (e)=>{
-    const u = e.target.getAttribute("data-user");
-    openProfile(u);
-  });
-
-  chatBox.appendChild(row);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function clearChat(){ chatBox.innerHTML=""; }
-
-// ---------- mute helpers ----------
-function saveMuted(){
-  localStorage.setItem("tonkotsu_muted", JSON.stringify(muted));
-}
-function isMutedGlobal(){ return !!muted.global; }
-function isMutedDM(u){ return !!muted.dm?.[u]; }
-function isMutedGroup(gid){ return !!muted.group?.[gid]; }
-
-function toggleMute(kind, key){
-  if(kind==="global"){
-    muted.global = !muted.global;
-    toast("Mute", muted.global ? "Muted Global." : "Unmuted Global.");
-  } else if(kind==="dm"){
-    muted.dm[key] = !muted.dm[key];
-    toast("Mute", muted.dm[key] ? `Muted DM with ${key}.` : `Unmuted DM with ${key}.`);
-  } else if(kind==="group"){
-    muted.group[key] = !muted.group[key];
-    toast("Mute", muted.group[key] ? "Muted Group." : "Unmuted Group.");
-  }
-  saveMuted();
-  // rerender current sidebar view
-  if(tabMessages.classList.contains("primary")) renderSidebarMessages();
-  if(tabGlobal.classList.contains("primary")) renderSidebarGlobal();
-}
-
-// ---------- sidebars ----------
-function renderSidebarGlobal(){
-  sideSection.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <div style="font-weight:950;font-size:12px;color:#dbe6f1">Online</div>
-      <div style="font-size:11px;color:var(--muted)">${onlineUsers.length}</div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${onlineUsers.map(u => `
-        <div class="row" data-profile="${escapeHtml(u.user)}">
-          <div class="rowLeft">
-            <div class="statusDot on"></div>
-            <div class="nameCol">
-              <div class="rowName">${escapeHtml(u.user)}${u.user===me ? " (You)" : ""}</div>
-              <div class="rowSub">click for profile</div>
-            </div>
-          </div>
-        </div>
-      `).join("")}
-    </div>
-  `;
-  sideSection.querySelectorAll("[data-profile]").forEach(el=>{
-    el.addEventListener("click", ()=> openProfile(el.getAttribute("data-profile")));
-  });
-}
-
-function renderSidebarMessages(){
-  // global row must exist here too
-  const dmUsers = Array.from(new Set(Array.from(dmCache.keys()))).sort((a,b)=>a.localeCompare(b));
-  const groups = Array.from(groupMeta.values()).sort((a,b)=>a.name.localeCompare(b.name));
-
-  sideSection.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <div style="font-weight:950;font-size:12px;color:#dbe6f1">Messages</div>
-      <button class="btn small" id="createGroupBtn">Create group</button>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px" id="msgList"></div>
-  `;
-
-  const list = $("msgList");
-
-  // Global row (no red pings here)
-  const globalRow = document.createElement("div");
-  globalRow.className = `row ${isMutedGlobal() ? "muted":""}`;
-  globalRow.innerHTML = `
-    <div class="rowLeft">
-      <div class="statusDot on"></div>
-      <div class="nameCol">
-        <div class="rowName">Global</div>
-        <div class="rowSub">everyone</div>
-      </div>
-    </div>
-  `;
-  globalRow.addEventListener("click", ()=> openGlobal(true));
-  globalRow.addEventListener("contextmenu",(e)=>{
-    e.preventDefault();
-    toggleMute("global");
-  });
-  list.appendChild(globalRow);
-
-  // DMs
-  dmUsers.forEach(u=>{
-    const row = document.createElement("div");
-    row.className = `row ${isMutedDM(u) ? "muted":""}`;
-    row.innerHTML = `
-      <div class="rowLeft">
-        <div class="statusDot ${onlineUsers.some(x=>x.user===u) ? "on":""}"></div>
-        <div class="nameCol">
-          <div class="rowName">${escapeHtml(u)}</div>
-          <div class="rowSub">dm</div>
-        </div>
-      </div>
-    `;
-    row.addEventListener("click", ()=> openDM(u));
-    row.addEventListener("contextmenu",(e)=>{
-      e.preventDefault();
-      toggleMute("dm", u);
-    });
-    list.appendChild(row);
-  });
-
-  // Groups
-  groups.forEach(g=>{
-    const row = document.createElement("div");
-    row.className = `row ${isMutedGroup(g.id) ? "muted":""}`;
-    row.innerHTML = `
-      <div class="rowLeft">
-        <div class="statusDot on"></div>
-        <div class="nameCol">
-          <div class="rowName">${escapeHtml(g.name)}</div>
-          <div class="rowSub">group</div>
-        </div>
-      </div>
-    `;
-    row.addEventListener("click", ()=> openGroup(g.id));
-    row.addEventListener("contextmenu",(e)=>{
-      e.preventDefault();
-      toggleMute("group", g.id);
-    });
-    list.appendChild(row);
-  });
-
-  $("createGroupBtn").onclick = () => {
-    if(isGuest){
-      toast("Guests", "Guests can’t create groups. Log in to use groups.");
-      return;
+function animateTrail() {
+  const t = performance.now();
+  for (const node of trailNodes) {
+    const age = t - node.born;
+    const life = 180; // short
+    const p = Math.min(1, age / life);
+    node.el.style.opacity = String(1 - p);
+    node.el.style.transform = `translate(-50%,-50%) scale(${1 - p * 0.35})`;
+    if (p >= 1) {
+      node.el.remove();
     }
-    openGroupCreate();
-  };
-}
-
-function renderSidebarInbox(){
-  if(isGuest){
-    sideSection.innerHTML = `
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02);color:var(--muted);font-size:12px;line-height:1.45">
-        Guest mode has no inbox.
-        <br><br>
-        Log in to get friend requests and group invites.
-      </div>
-    `;
-    return;
   }
+  trailNodes = trailNodes.filter(n => n.el.isConnected);
+  requestAnimationFrame(animateTrail);
+}
+requestAnimationFrame(animateTrail);
 
-  const incomingFriends = social?.incoming || [];
-  const groupInvites = social?.groupInvites || [];
-
-  sideSection.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-      <div style="font-weight:950;font-size:12px;color:#dbe6f1">Inbox</div>
-      <div style="font-size:11px;color:var(--muted)">${incomingFriends.length + groupInvites.length}</div>
-    </div>
-
-    <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
-      ${groupInvites.length ? groupInvites.map(inv=>`
-        <div class="row" data-ginv="${escapeHtml(inv.groupId)}">
-          <div class="rowLeft">
-            <div class="statusDot on"></div>
-            <div class="nameCol">
-              <div class="rowName">${escapeHtml(inv.groupName || "Unnamed Group")}</div>
-              <div class="rowSub">group invite from ${escapeHtml(inv.from)}</div>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn small primary" data-gaccept="${escapeHtml(inv.groupId)}">Join</button>
-            <button class="btn small" data-gdecline="${escapeHtml(inv.groupId)}">Ignore</button>
-          </div>
-        </div>
-      `).join("") : ""}
-
-      ${incomingFriends.length ? incomingFriends.map(u=>`
-        <div class="row" data-freq="${escapeHtml(u)}">
-          <div class="rowLeft">
-            <div class="statusDot ${onlineUsers.some(x=>x.user===u)?"on":""}"></div>
-            <div class="nameCol">
-              <div class="rowName">${escapeHtml(u)}</div>
-              <div class="rowSub">friend request</div>
-            </div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn small primary" data-accept="${escapeHtml(u)}">Accept</button>
-            <button class="btn small" data-decline="${escapeHtml(u)}">Ignore</button>
-          </div>
-        </div>
-      `).join("") : ""}
-
-      ${(!groupInvites.length && !incomingFriends.length) ? `
-        <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02);color:var(--muted);font-size:12px">
-          Nothing here right now.
-        </div>
-      ` : ""}
-    </div>
-  `;
-
-  sideSection.querySelectorAll("[data-accept]").forEach(b=>{
-    b.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      socket.emit("friend:accept", { from: b.getAttribute("data-accept") });
-      toast("Friends", "Accepted.");
-    });
-  });
-  sideSection.querySelectorAll("[data-decline]").forEach(b=>{
-    b.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      socket.emit("friend:decline", { from: b.getAttribute("data-decline") });
-      toast("Friends", "Ignored.");
-    });
-  });
-
-  sideSection.querySelectorAll("[data-gaccept]").forEach(b=>{
-    b.addEventListener("click",(e)=>{
-      e.stopPropagation();
-      socket.emit("group:invite:accept", { groupId: b.getAttribute("data-gaccept") });
-      toast("Groups", "Joining…");
-    });
-  });
-  sideSection.querySelectorAll("[data-gdecline]").forEach(b=>{
-    b.addEventListener("click",(e)=>{
-      e.stopPropagation();
-      socket.emit("group:invite:decline", { groupId: b.getAttribute("data-gdecline") });
-      toast("Groups", "Ignored.");
-    });
-  });
+// ---- UI helpers ----
+function showToast(title, sub) {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.innerHTML = `<div class="toastTitle">${escapeHTML(title)}</div><div class="toastSub">${escapeHTML(sub)}</div>`;
+  toastHost.appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = "0";
+    t.style.transform = "translateY(8px)";
+    t.style.transition = "opacity .2s ease, transform .2s ease";
+    setTimeout(() => t.remove(), 220);
+  }, 1800);
 }
 
-// ---------- open global/dm/group ----------
-function openGlobal(force){
-  currentDM = null;
-  currentGroupId = null;
-  setView("global");
-
-  tabGlobal.classList.add("primary");
-  tabMessages.classList.remove("primary");
-  tabInbox.classList.remove("primary");
-
-  if(force){
-    clearChat();
-    globalCache.forEach(m=> addMessageToUI(m, { scope:"global" }));
-  }
-  socket.emit("requestGlobalHistory");
-  renderSidebarGlobal();
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
 }
 
-function openDM(user){
-  if(isGuest){
-    toast("Guests", "Guests can’t DM. Log in to use DMs.");
-    return;
-  }
-  currentDM = user;
-  currentGroupId = null;
-  setView("dm", user);
-
-  tabGlobal.classList.remove("primary");
-  tabMessages.classList.add("primary");
-  tabInbox.classList.remove("primary");
-
-  clearChat();
-  socket.emit("dm:history", { withUser: user });
-  renderSidebarMessages();
+function setActiveTab(type) {
+  for (const btn of [tabGlobal, tabDMs, tabGroups]) btn.classList.remove("active");
+  if (type === "global") tabGlobal.classList.add("active");
+  if (type === "dms") tabDMs.classList.add("active");
+  if (type === "groups") tabGroups.classList.add("active");
 }
 
-function openGroup(gid){
-  if(isGuest){
-    toast("Guests", "Guests can’t join groups.");
-    return;
-  }
-  currentGroupId = gid;
-  currentDM = null;
-  setView("group", gid);
-
-  tabGlobal.classList.remove("primary");
-  tabMessages.classList.add("primary");
-  tabInbox.classList.remove("primary");
-
-  clearChat();
-  socket.emit("group:history", { groupId: gid });
-  renderSidebarMessages();
+function openModal(which) {
+  overlay.hidden = false;
+  which.hidden = false;
+}
+function closeModals() {
+  overlay.hidden = true;
+  settingsModal.hidden = true;
+  inboxModal.hidden = true;
 }
 
-// ---------- group creation flow (invite required) ----------
-function openGroupCreate(){
-  const friends = (social?.friends || []).slice().sort((a,b)=>a.localeCompare(b));
-  const onlineSet = new Set((onlineUsers||[]).map(x=>x.user));
+// ---- Settings apply (prevents overlap issues by only adjusting CSS vars) ----
+function applySettingsToUI() {
+  // density controls compactness (font/spacing) via a scale
+  const scale = 1 - (settings.density * 0.12); // subtle
+  document.documentElement.style.setProperty("--appW", `${Math.round(1080 * (1 - settings.density * 0.10))}px`);
+  document.body.style.fontSize = `${Math.round(14 * scale)}px`;
 
-  openModal("Create group", `
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div style="color:var(--muted);font-size:12px;line-height:1.45">
-        Pick <b>at least 2 people</b> to invite. The group is created only when invites are sent.
-      </div>
+  // Sidebar width controls grid column
+  const sidebarPx = Math.round(240 + (settings.sidebar - 0.16) * 600);
+  document.querySelector(".layout").style.gridTemplateColumns = `${sidebarPx}px 1fr`;
 
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <div style="font-weight:900;font-size:12px">Group name</div>
-        <input id="gcName" class="field" placeholder="Unnamed Group" value="Unnamed Group" maxlength="40" />
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-          <div style="font-weight:900;font-size:12px">Invite people</div>
-          <div style="font-size:11px;color:var(--muted)" id="gcCount">0 selected</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;max-height:240px;overflow:auto" id="gcInviteList">
-          ${
-            friends.length
-              ? friends.map(u=>`
-                  <label class="row" style="cursor:pointer" data-invite="${escapeHtml(u)}">
-                    <div class="rowLeft">
-                      <div class="statusDot ${onlineSet.has(u) ? "on":""}"></div>
-                      <div class="nameCol">
-                        <div class="rowName">${escapeHtml(u)}</div>
-                        <div class="rowSub">${onlineSet.has(u) ? "online" : "offline"}</div>
-                      </div>
-                    </div>
-                    <input type="checkbox" data-check="${escapeHtml(u)}" />
-                  </label>
-                `).join("")
-              : `<div style="color:var(--muted);font-size:12px">Add friends first to invite them.</div>`
-          }
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px">
-        <button class="btn primary" id="gcCreateBtn" disabled>Create</button>
-        <button class="btn" id="gcCancelBtn">Cancel</button>
-      </div>
-    </div>
-  `);
-
-  const selected = new Set();
-  const updateBtn = ()=>{
-    $("gcCount").textContent = `${selected.size} selected`;
-    $("gcCreateBtn").disabled = selected.size < 2;
-  };
-  updateBtn();
-
-  modalBody.querySelectorAll("[data-check]").forEach(cb=>{
-    cb.addEventListener("change", ()=>{
-      const u = cb.getAttribute("data-check");
-      if(cb.checked) selected.add(u); else selected.delete(u);
-      updateBtn();
-    });
-  });
-
-  $("gcCancelBtn").onclick = closeModal;
-  $("gcCreateBtn").onclick = ()=>{
-    const name = ($("gcName").value || "").trim() || "Unnamed Group";
-    const invites = Array.from(selected);
-    if(invites.length < 2) return;
-    closeModal();
-    socket.emit("group:createWithInvites", { name, invites });
-    toast("Group", "Invites sent.");
-  };
+  setTrailEnabled(settings.customCursor !== false);
 }
 
-// ---------- group management popup (single close button only) ----------
-function openGroupManage(gid){
-  const meta = groupMeta.get(gid);
-  if(!meta) return;
-
-  const isOwner = meta.owner === me;
-
-  const membersHtml = (meta.members || []).map(u => `
-    <div class="row" data-member="${escapeHtml(u)}" title="${u===me ? "Right-click to leave" : ""}">
-      <div class="rowLeft">
-        <div class="statusDot ${onlineUsers.some(x=>x.user===u)?"on":""}"></div>
-        <div class="nameCol">
-          <div class="rowName">${escapeHtml(u)}${u===meta.owner ? " (Owner)" : ""}${u===me ? " (You)" : ""}</div>
-          <div class="rowSub">member</div>
-        </div>
-      </div>
-      ${isOwner && u!==meta.owner ? `<button class="btn small" data-remove="${escapeHtml(u)}">Remove</button>` : ``}
-    </div>
-  `).join("");
-
-  openModal("Group settings", `
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
-        <div style="min-width:0">
-          <div style="font-weight:950">${escapeHtml(meta.name)}</div>
-          <div style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(meta.id)}</div>
-        </div>
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:900;font-size:12px;margin-bottom:8px">Members</div>
-        <div style="display:flex;flex-direction:column;gap:8px" id="membersList">${membersHtml}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:10px">
-          Tip: Right-click your own name to leave.
-        </div>
-      </div>
-
-      ${isOwner ? `
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <div style="font-weight:900;font-size:12px">Owner controls</div>
-          <div style="display:flex;gap:10px">
-            <input id="addUser" class="field" placeholder="Add member (username)" />
-            <button class="btn small primary" id="addBtn">Add</button>
-          </div>
-
-          <div style="display:flex;gap:10px">
-            <input id="renameGroup" class="field" placeholder="Rename group" />
-            <button class="btn small" id="renameBtn">Rename</button>
-          </div>
-
-          <div style="display:flex;gap:10px">
-            <input id="transferUser" class="field" placeholder="Transfer ownership to…" />
-            <button class="btn small" id="transferBtn">Transfer</button>
-          </div>
-
-          <button class="btn danger" id="deleteBtn">Delete group</button>
-        </div>
-      ` : `
-        <button class="btn danger" id="leaveBtn">Leave group</button>
-      `}
-    </div>
-  `);
-
-  // Remove member (owner)
-  modalBody.querySelectorAll("[data-remove]").forEach(btn=>{
-    btn.addEventListener("click",(e)=>{
-      e.stopPropagation();
-      const u = btn.getAttribute("data-remove");
-      socket.emit("group:removeMember", { groupId: gid, user: u });
-      toast("Group", `Removing ${u}…`);
-    });
-  });
-
-  // Right click your own name -> leave
-  modalBody.querySelectorAll("[data-member]").forEach(row=>{
-    row.addEventListener("contextmenu",(e)=>{
-      e.preventDefault();
-      const u = row.getAttribute("data-member");
-      if(u !== me) return;
-
-      openModal("Leave group?", `
-        <div style="color:var(--muted);font-size:12px;line-height:1.45">
-          Leave <b>${escapeHtml(meta.name)}</b>?
-        </div>
-        <div style="display:flex;gap:10px;margin-top:12px">
-          <button class="btn" id="cancelLeave">Cancel</button>
-          <button class="btn primary" id="confirmLeave">Leave</button>
-        </div>
-      `);
-      $("cancelLeave").onclick = ()=> openGroupManage(gid);
-      $("confirmLeave").onclick = ()=>{
-        closeModal();
-        socket.emit("group:leave", { groupId: gid });
-        toast("Group", "Leaving…");
-      };
-    });
-  });
-
-  if(isOwner){
-    $("addBtn").onclick = ()=>{
-      const u = ($("addUser").value || "").trim();
-      if(!u) return;
-      socket.emit("group:addMember", { groupId: gid, user: u });
-      toast("Group", `Adding ${u}…`);
-    };
-
-    $("renameBtn").onclick = ()=>{
-      const name = ($("renameGroup").value || "").trim();
-      if(!name) return;
-      socket.emit("group:rename", { groupId: gid, name });
-      toast("Group", "Renaming…");
-    };
-
-    $("transferBtn").onclick = ()=>{
-      const u = ($("transferUser").value || "").trim();
-      if(!u) return;
-      socket.emit("group:transferOwner", { groupId: gid, newOwner: u });
-      toast("Group", `Transferring to ${u}…`);
-    };
-
-    $("deleteBtn").onclick = ()=>{
-      openModal("Delete group?", `
-        <div style="color:var(--muted);font-size:12px;line-height:1.45">
-          Delete <b>${escapeHtml(meta.name)}</b>? This can’t be undone.
-        </div>
-        <div style="display:flex;gap:10px;margin-top:12px">
-          <button class="btn" id="cancelDel">Cancel</button>
-          <button class="btn primary" id="confirmDel">Delete</button>
-        </div>
-      `);
-      $("cancelDel").onclick = ()=> openGroupManage(gid);
-      $("confirmDel").onclick = ()=>{
-        closeModal();
-        socket.emit("group:delete", { groupId: gid });
-        toast("Group", "Deleting…");
-      };
-    };
-  } else {
-    $("leaveBtn").onclick = ()=>{
-      socket.emit("group:leave", { groupId: gid });
-      closeModal();
-      toast("Group", "Leaving…");
-    };
-  }
+// ---- Login persistence ----
+const LS_TOKEN = "tonkotsu_token";
+const LS_USER = "tonkotsu_user";
+function saveSession(token, username) {
+  if (!token) return;
+  localStorage.setItem(LS_TOKEN, token);
+  localStorage.setItem(LS_USER, username || "");
 }
-
-// ---------- profile popup (guests show name only) ----------
-function isGuestUser(u){ return /^Guest\d{4,5}$/.test(String(u)); }
-
-function openProfile(user){
-  if(!user) return;
-
-  // guest profile = name only
-  const guestish = isGuestUser(user) || (user === me && isGuest);
-
-  if(guestish){
-    openModal("Profile", `
-      <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="font-weight:950;font-size:16px">${escapeHtml(user)}</div>
-        <div style="font-size:12px;color:var(--muted)">Guest users have no stats.</div>
-      </div>
-    `);
-    return;
-  }
-
-  openModal("Profile", `
-    <div style="display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
-        <div style="min-width:0">
-          <div style="font-weight:950;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(user)}</div>
-          <div style="font-size:12px;color:var(--muted)" id="profSub">loading…</div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;flex-wrap:wrap" id="profActions"></div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:900;font-size:12px;margin-bottom:8px">Stats</div>
-        <div id="profStats" style="display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:12px"></div>
-      </div>
-
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        ${(!isGuest && user !== me) ? `<button class="btn" id="dmBtn">DM</button>` : ``}
-        ${(!isGuest && user !== me) ? `<button class="btn" id="friendBtn">Add friend</button>` : ``}
-        ${(!isGuest && user !== me) ? `<button class="btn danger" id="blockBtn">Block</button>` : ``}
-        ${(!isGuest && user !== me) ? `<button class="btn" id="removeFriendBtn" style="display:none">Remove friend</button>` : ``}
-      </div>
-    </div>
-  `);
-
-  socket.emit("profile:get", { user });
-  modalBody._profileUser = user;
+function clearSession() {
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_USER);
 }
-
-// ---------- settings popup (preview-only until Save) ----------
-function openSettings(){
-  const original = JSON.parse(JSON.stringify(settings));
-
-  const themeKeys = ["dark","vortex","abyss","carbon"];
-  const curTheme = settings.theme || "dark";
-  const curDensity = Number.isFinite(settings.density) ? settings.density : 0.15;
-  const curSidebar = Number.isFinite(settings.sidebar) ? settings.sidebar : 0.20;
-
-  openModal("Settings", `
-    <div style="display:flex;flex-direction:column;gap:10px">
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:900;font-size:12px;margin-bottom:8px">Theme</div>
-        <input id="themeSlider" type="range" min="0" max="3" step="1" value="${themeKeys.indexOf(curTheme)}" style="width:100%">
-        <div style="font-size:12px;color:var(--muted);margin-top:6px">Current: <b id="themeName">${escapeHtml(curTheme)}</b></div>
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:900;font-size:12px;margin-bottom:8px">Layout</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Compact ↔ Cozy</div>
-        <input id="densitySlider" type="range" min="0" max="1" step="0.01" value="${curDensity}" style="width:100%">
-
-        <div style="font-size:11px;color:var(--muted);margin:10px 0 8px">Sidebar width</div>
-        <input id="sidebarSlider" type="range" min="0" max="1" step="0.01" value="${curSidebar}" style="width:100%">
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02);display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div>
-          <div style="font-weight:900;font-size:12px">Custom cursor</div>
-          <div style="font-size:11px;color:var(--muted)">Turn it off if you don’t like it.</div>
-        </div>
-        <button class="btn small" id="toggleCursor">${settings.customCursor ? "On" : "Off"}</button>
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02);display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div>
-          <div style="font-weight:900;font-size:12px">Ping sound</div>
-          <div style="font-size:11px;color:var(--muted)">For DMs/inbox only.</div>
-        </div>
-        <button class="btn small" id="togglePing">${settings.pingSound ? "On" : "Off"}</button>
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02)">
-        <div style="font-weight:900;font-size:12px;margin-bottom:8px">Ping volume</div>
-        <input id="pingVol" type="range" min="0" max="1" step="0.01" value="${Number(settings.pingVolume ?? 0.45)}" style="width:100%">
-      </div>
-
-      <div style="padding:12px;border:1px solid var(--stroke);border-radius:14px;background:rgba(255,255,255,.02);display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div>
-          <div style="font-weight:900;font-size:12px">Hide mild profanity</div>
-          <div style="font-size:11px;color:var(--muted)">F/S/A words etc get masked as •••.</div>
-        </div>
-        <button class="btn small" id="toggleMild">${settings.hideMildProfanity ? "On" : "Off"}</button>
-      </div>
-
-      <div style="display:flex;gap:10px">
-        <button class="btn primary" id="saveS">Save</button>
-        <button class="btn" id="closeS">Close</button>
-      </div>
-
-      ${isGuest ? `
-        <div style="color:var(--muted);font-size:11px;line-height:1.45">
-          Guest settings aren’t saved.
-        </div>
-      ` : ``}
-    </div>
-  `);
-
-  // preview changes live
-  $("themeSlider").addEventListener("input", ()=>{
-    const k = themeKeys[Number($("themeSlider").value)];
-    $("themeName").textContent = k;
-    applyTheme(k);
-    settings.theme = k;
-  });
-  $("densitySlider").addEventListener("input", ()=>{
-    const v = Number($("densitySlider").value);
-    applyDensity(v);
-    settings.density = v;
-  });
-  $("sidebarSlider").addEventListener("input", ()=>{
-    const v = Number($("sidebarSlider").value);
-    applySidebarWidth(v);
-    settings.sidebar = v;
-  });
-
-  $("toggleMild").onclick = ()=>{
-    settings.hideMildProfanity = !settings.hideMildProfanity;
-    $("toggleMild").textContent = settings.hideMildProfanity ? "On" : "Off";
-  };
-
-  $("toggleCursor").onclick = ()=>{
-    settings.customCursor = !settings.customCursor;
-    $("toggleCursor").textContent = settings.customCursor ? "On" : "Off";
-    applyCursor(settings.customCursor);
-  };
-
-  $("togglePing").onclick = ()=>{
-    settings.pingSound = !settings.pingSound;
-    $("togglePing").textContent = settings.pingSound ? "On" : "Off";
-    beep();
-  };
-
-  $("pingVol").addEventListener("input", ()=>{
-    settings.pingVolume = Number($("pingVol").value);
-  });
-
-  // CLOSE without save: revert preview
-  $("closeS").onclick = ()=>{
-    settings = original;
-    applyTheme(settings.theme || "dark");
-    applyDensity(settings.density ?? 0.15);
-    applySidebarWidth(settings.sidebar ?? 0.20);
-    applyCursor(settings.customCursor !== false);
-    closeModal();
-  };
-
-  // SAVE: persist for accounts only
-  $("saveS").onclick = ()=>{
-    if(isGuest){
-      toast("Settings", "Guest settings are preview-only.");
-      closeModal();
-      return;
-    }
-    socket.emit("settings:update", settings);
-    toast("Settings", "Saved.");
-    closeModal();
-  };
+function tryResume() {
+  const token = localStorage.getItem(LS_TOKEN);
+  if (token) socket.emit("resume", { token });
 }
+tryResume();
 
-// ---------- tabs ----------
-tabGlobal.addEventListener("click", ()=> openGlobal(true));
-tabMessages.addEventListener("click", ()=>{
-  tabGlobal.classList.remove("primary");
-  tabMessages.classList.add("primary");
-  tabInbox.classList.remove("primary");
-  renderSidebarMessages();
-});
-tabInbox.addEventListener("click", ()=>{
-  tabGlobal.classList.remove("primary");
-  tabMessages.classList.remove("primary");
-  tabInbox.classList.add("primary");
-  socket.emit("social:sync"); // refresh inbox
-  renderSidebarInbox();
+// ---- Login UI ----
+togglePw.addEventListener("click", () => {
+  passwordEl.type = passwordEl.type === "password" ? "text" : "password";
 });
 
-// ---------- composer send ----------
-sendBtn.addEventListener("click", sendCurrent);
-messageEl.addEventListener("keydown", (e)=>{
-  if(e.key==="Enter" && !e.shiftKey){
-    e.preventDefault();
-    sendCurrent();
-  }
-});
-
-function sendCurrent(){
-  if(!me) return;
-  if(!canSend()){ cooldownWarn(); return; }
-
-  const text = messageEl.value.trim();
-  if(!text) return;
-
-  startCooldown();
-  messageEl.value = "";
-
-  if(view.type==="global"){
-    socket.emit("sendGlobal", { text, ts: now() });
-  } else if(view.type==="dm"){
-    socket.emit("dm:send", { to: currentDM, text });
-  } else if(view.type==="group"){
-    socket.emit("group:send", { groupId: currentGroupId, text });
-  }
-}
-
-// ---------- auth buttons ----------
-settingsBtn.addEventListener("click", openSettings);
-
-logoutBtn.addEventListener("click", ()=>{
-  showLoading("logging out…");
-  setTimeout(()=>{
-    localStorage.removeItem("tonkotsu_token");
-    location.reload();
-  }, 650);
-});
-
-loginBtn.addEventListener("click", ()=>{
-  loginOverlay.classList.remove("hidden");
-});
-
-// ---------- join buttons ----------
-function shakeLogin(){
-  const card = document.querySelector(".loginCard");
-  card.classList.add("shake");
-  setTimeout(()=> card.classList.remove("shake"), 380);
-}
-
-function makeGuestName(){
-  // 4 digits (or 5 sometimes) max
-  const n = Math.floor(1000 + Math.random()*9000); // 1000..9999
-  return `Guest${n}`;
-}
-
-joinBtn.addEventListener("click", ()=>{
+loginBtn.addEventListener("click", () => {
   const u = usernameEl.value.trim();
   const p = passwordEl.value;
+  socket.emit("login", { username: u, password: p, guest: false });
+});
 
-  if(!u || !p){
-    shakeLogin();
+guestBtn.addEventListener("click", () => {
+  socket.emit("login", { guest: true });
+});
+
+// ---- Tabs behavior ----
+tabGlobal.addEventListener("click", () => {
+  view = { type: "global", withUser: null, groupId: null };
+  setActiveTab("global");
+  setChatHeader("Global", "Public chat");
+  clearMessages();
+  socket.emit("requestGlobalHistory");
+});
+tabDMs.addEventListener("click", () => {
+  view = { type: "dms", withUser: null, groupId: null };
+  setActiveTab("dms");
+  setChatHeader("DMs", "Pick someone from Online to DM");
+  clearMessages();
+});
+tabGroups.addEventListener("click", () => {
+  view = { type: "groups", withUser: null, groupId: null };
+  setActiveTab("groups");
+  setChatHeader("Group Chats", "Create/Join via inbox invites");
+  clearMessages();
+  socket.emit("groups:list");
+});
+
+// ---- Chat ----
+function setChatHeader(title, sub) {
+  chatTitle.textContent = title;
+  chatSubtitle.textContent = sub;
+}
+
+function clearMessages() {
+  messagesEl.innerHTML = "";
+}
+
+function addMessage({ user, text, ts }) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg";
+  const time = new Date(ts || Date.now());
+  wrap.innerHTML = `
+    <div class="msgTop">
+      <div class="msgUser">${escapeHTML(user || "??")}</div>
+      <div class="msgTime">${time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+    </div>
+    <div class="msgText">${escapeHTML(text || "")}</div>
+  `;
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+sendBtn.addEventListener("click", sendCurrent);
+messageInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendCurrent();
+});
+
+function sendCurrent() {
+  const text = messageInput.value.trim();
+  if (!text) return;
+  messageInput.value = "";
+
+  if (view.type === "global") {
+    socket.emit("sendGlobal", { text, ts: Date.now() });
+    return;
+  }
+  if (view.type === "dms" && view.withUser) {
+    socket.emit("dm:send", { to: view.withUser, text });
+    return;
+  }
+  if (view.type === "groups" && view.groupId) {
+    socket.emit("group:send", { groupId: view.groupId, text });
     return;
   }
 
-  showLoading("logging in…");
-  socket.emit("login", { username: u, password: p, guest:false });
-});
-
-guestBtn.addEventListener("click", ()=>{
-  showLoading("joining as guest…");
-  socket.emit("login", { guest:true, guestName: makeGuestName() });
-});
-
-passwordEl.addEventListener("keydown",(e)=>{
-  if(e.key==="Enter") joinBtn.click();
-});
-
-// ---------- pings ----------
-function setPing(el, n){
-  const v = Number(n) || 0;
-  if(v > 0){
-    el.textContent = String(v);
-    el.classList.add("show");
-  } else {
-    el.classList.remove("show");
-  }
+  showToast("Not ready", "Select a DM or Group first.");
 }
 
-// Friend + group invites => inbox ping
-function computeInboxPing(){
-  if(isGuest) return 0;
-  const a = (social?.incoming?.length || 0);
-  const b = (social?.groupInvites?.length || 0);
-  return a + b;
+// ---- Inbox + settings buttons ----
+overlay.addEventListener("click", closeModals);
+settingsBtn.addEventListener("click", () => openModal(settingsModal));
+closeSettings.addEventListener("click", closeModals);
+
+inboxBtn.addEventListener("click", () => {
+  openModal(inboxModal);
+  socket.emit("social:sync");
+});
+closeInbox.addEventListener("click", closeModals);
+
+// ---- Profile (click username pill) ----
+mePill.addEventListener("click", () => {
+  if (!me.username) return;
+  socket.emit("profile:get", { user: me.username });
+});
+
+// ---- Settings controls (smooth, no overlap) ----
+function bindSettingsUI() {
+  themeSelect.value = settings.theme || "dark";
+  densityRange.value = String(settings.density ?? 0.15);
+  sidebarRange.value = String(settings.sidebar ?? 0.22);
+  customCursorToggle.checked = settings.customCursor !== false;
+  pingSoundToggle.checked = settings.pingSound !== false;
+  pingVolumeRange.value = String(settings.pingVolume ?? 0.45);
+
+  applySettingsToUI();
 }
 
-let lastInboxCount = 0;
-function updatePings(){
-  const inboxCount = computeInboxPing();
-  setPing(inboxPing, inboxCount);
-
-  // Messages ping: server can send counts; fallback: if inbox has stuff, show it on Messages too
-  // (still not for Global)
-  const msgCount = Number(social?._msgPing || 0); // server can set this
-  setPing(msgPing, msgCount);
-
-  if(inboxCount > lastInboxCount && (settings?.pingSound && !isGuest)){
-    beep();
-  }
-  lastInboxCount = inboxCount;
+let settingsDebounce = null;
+function pushSettings() {
+  clearTimeout(settingsDebounce);
+  settingsDebounce = setTimeout(() => {
+    socket.emit("settings:update", settings);
+  }, 120);
 }
 
-// ---------- socket events ----------
-socket.on("loginSuccess",(data)=>{
-  hideLoading();
-
-  me = data.username;
-  isGuest = !!data.guest;
-
-  // guests: no xp/stats
-  xp = (!isGuest ? (data.xp || xp) : null);
-
-  // set settings but APPLY defaults properly:
-  // - account settings apply now
-  // - guest uses compact defaults and doesn't persist
-  if(!isGuest && data.settings){
-    settings = { ...settings, ...data.settings };
-  }
-
-  social = data.social ? data.social : social;
-
-  // Apply theme/layout/cursor now
-  applyTheme(settings?.theme || "dark");
-  applyDensity(settings?.density ?? 0.15);
-  applySidebarWidth(settings?.sidebar ?? 0.20);
-  applyCursor(settings?.customCursor !== false);
-
-  // show app
-  loginOverlay.classList.add("hidden");
-  app.classList.add("show");
-  mePill.style.display = "flex";
-  meName.textContent = me;
-
-  if(!isGuest && data.token){
-    localStorage.setItem("tonkotsu_token", data.token);
-    token = data.token;
-  }
-
-  if(isGuest){
-    settingsBtn.style.display="inline-flex"; // allow preview settings
-    logoutBtn.style.display="none";
-    loginBtn.style.display="inline-flex";
-  } else {
-    settingsBtn.style.display="inline-flex";
-    logoutBtn.style.display="inline-flex";
-    loginBtn.style.display="none";
-  }
-
-  updatePings();
-  toast("Welcome", isGuest ? "Joined as Guest" : `Logged in as ${me}`);
-
-  openGlobal(true);
-
-  // request initial lists
-  if(!isGuest){
-    socket.emit("groups:list");
-    socket.emit("social:sync");
-  }
+themeSelect.addEventListener("change", () => {
+  settings.theme = themeSelect.value;
+  pushSettings();
+});
+densityRange.addEventListener("input", () => {
+  settings.density = Number(densityRange.value);
+  applySettingsToUI();
+  pushSettings();
+});
+sidebarRange.addEventListener("input", () => {
+  settings.sidebar = Number(sidebarRange.value);
+  applySettingsToUI();
+  pushSettings();
+});
+customCursorToggle.addEventListener("change", () => {
+  settings.customCursor = customCursorToggle.checked;
+  applySettingsToUI();
+  pushSettings();
+});
+pingSoundToggle.addEventListener("change", () => {
+  settings.pingSound = pingSoundToggle.checked;
+  pushSettings();
+});
+pingVolumeRange.addEventListener("input", () => {
+  settings.pingVolume = Number(pingVolumeRange.value);
+  pushSettings();
 });
 
-socket.on("resumeFail", ()=>{
-  localStorage.removeItem("tonkotsu_token");
-  token = null;
+// ---- Socket events ----
+socket.on("loginError", (msg) => {
+  loginHint.textContent = msg || "Login failed.";
+});
+socket.on("resumeFail", () => {
+  clearSession();
 });
 
-socket.on("loginError",(msg)=>{
-  hideLoading();
-  shakeLogin();
-  toast("Login failed", msg || "Try again.");
-});
-
-socket.on("settings",(s)=>{
-  // server confirms saved settings
-  if(isGuest) return;
-  settings = { ...settings, ...s };
-  applyTheme(settings?.theme || "dark");
-  applyDensity(settings?.density ?? 0.15);
-  applySidebarWidth(settings?.sidebar ?? 0.20);
-  applyCursor(settings?.customCursor !== false);
-});
-
-socket.on("social:update",(s)=>{
-  social = { ...social, ...s };
-  updatePings();
-  if(tabInbox.classList.contains("primary")) renderSidebarInbox();
-});
-
-socket.on("ping:update",(p)=>{
-  // optional server side pings
-  if(p && typeof p === "object"){
-    if(Number.isFinite(p.messages)) social._msgPing = p.messages;
-  }
-  updatePings();
-});
-
-socket.on("xp:update",(x)=>{
-  if(isGuest) return;
-  xp = x;
-});
-
-socket.on("onlineUsers",(list)=>{
-  onlineUsers = Array.isArray(list) ? list : [];
-  if(view.type==="global" && tabGlobal.classList.contains("primary")) renderSidebarGlobal();
-  if(tabMessages.classList.contains("primary")) renderSidebarMessages();
-});
-
-socket.on("history",(msgs)=>{
-  globalCache = (Array.isArray(msgs)?msgs:[])
-    .filter(m => Number.isFinite(new Date(m.ts).getTime()));
-  if(view.type==="global"){
-    clearChat();
-    globalCache.forEach(m=> addMessageToUI(m, { scope:"global" }));
-  }
-});
-
-socket.on("globalMessage",(m)=>{
-  if(!m || !Number.isFinite(new Date(m.ts).getTime())) return;
-  globalCache.push(m);
-  if(globalCache.length > 250) globalCache.shift();
-  if(view.type==="global"){
-    addMessageToUI(m, { scope:"global" });
-  }
-  // no red pings for global
-});
-
-socket.on("sendError",(e)=>{
-  toast("Action blocked", e?.reason || "Blocked.");
-});
-
-// DMs
-socket.on("dm:history", ({ withUser, msgs }={})=>{
-  if(!withUser) return;
-  dmCache.set(withUser, Array.isArray(msgs) ? msgs : []);
-  if(view.type==="dm" && currentDM===withUser){
-    clearChat();
-    (dmCache.get(withUser) || []).forEach(m=> addMessageToUI(m, { scope:"dm", from: m.user === me ? withUser : m.user }));
-  }
-});
-
-socket.on("dm:message", ({ from, msg }={})=>{
-  if(!from || !msg) return;
-  if(!dmCache.has(from)) dmCache.set(from, []);
-  dmCache.get(from).push(msg);
-  if(dmCache.get(from).length > 250) dmCache.get(from).shift();
-
-  if(view.type==="dm" && currentDM===from){
-    addMessageToUI(msg, { scope:"dm", from: from });
-  } else {
-    // message ping if not muted
-    if(!isMutedDM(from) && settings?.pingSound && !isGuest) beep();
-  }
-});
-
-// Groups list/meta/history/messages
-socket.on("groups:list",(list)=>{
-  if(isGuest) return;
-  groupMeta.clear();
-  (Array.isArray(list)?list:[]).forEach(g=>{
-    groupMeta.set(g.id, { id:g.id, name:g.name, owner:g.owner, members:g.members || [] });
-  });
-
-  if(tabMessages.classList.contains("primary")) renderSidebarMessages();
-});
-
-socket.on("group:created",(g)=>{
-  if(!g) return;
-  groupMeta.set(g.id, { id:g.id, name:g.name, owner:g.owner, members:g.members || [] });
-  toast("Group", `Created “${g.name}”`);
-  socket.emit("groups:list");
-});
-
-socket.on("group:history",({ groupId, meta, msgs }={})=>{
-  if(!groupId || !meta) return;
-  groupMeta.set(groupId, meta);
-  groupCache.set(groupId, Array.isArray(msgs) ? msgs : []);
-  currentGroupId = groupId;
-
-  setView("group", groupId);
-
-  clearChat();
-  (msgs || []).forEach(m=> addMessageToUI(m, { scope:"group" }));
-
-  chatHint.innerHTML = `members: <b style="color:var(--text)">${(meta.members||[]).length}</b> • <span style="text-decoration:underline;cursor:pointer" id="manageGroupLink">manage</span>`;
-  setTimeout(()=>{
-    const link = document.getElementById("manageGroupLink");
-    if(link) link.onclick = ()=> openGroupManage(groupId);
-  }, 0);
-});
-
-socket.on("group:message",({ groupId, msg }={})=>{
-  if(!groupId || !msg) return;
-  if(!groupCache.has(groupId)) groupCache.set(groupId, []);
-  groupCache.get(groupId).push(msg);
-  if(groupCache.get(groupId).length > 250) groupCache.get(groupId).shift();
-
-  if(view.type==="group" && currentGroupId===groupId){
-    addMessageToUI(msg, { scope:"group" });
-  } else {
-    if(!isMutedGroup(groupId) && settings?.pingSound && !isGuest) beep();
-  }
-});
-
-socket.on("group:meta",({ groupId, meta }={})=>{
-  if(!groupId || !meta) return;
-  groupMeta.set(groupId, meta);
-  if(view.type==="group" && currentGroupId===groupId){
-    chatTitle.textContent = `Group — ${meta.name}`;
-  }
-  if(tabMessages.classList.contains("primary")) renderSidebarMessages();
-});
-
-socket.on("group:left",({ groupId }={})=>{
-  toast("Group", "Left group.");
-  if(currentGroupId===groupId){
-    openGlobal(true);
-  }
-  socket.emit("groups:list");
-});
-
-socket.on("group:deleted",({ groupId }={})=>{
-  toast("Group", "Group deleted.");
-  if(currentGroupId===groupId){
-    openGlobal(true);
-  }
-  socket.emit("groups:list");
-});
-
-// Profile response
-socket.on("profile:data",(data)=>{
-  const user = modalBody?._profileUser;
-  if(!user || !data || data.user !== user) return;
-
-  const profSub = document.getElementById("profSub");
-  const profStats = document.getElementById("profStats");
-
-  if(!profSub || !profStats) return;
-
-  profSub.textContent = `Level ${data.level} • created ${new Date(data.createdAt).toLocaleDateString()}`;
-
-  profStats.innerHTML = `
-    <div>Messages: <b style="color:var(--text)">${escapeHtml(data.messages)}</b></div>
-    <div>Friends: <b style="color:var(--text)">${escapeHtml(data.friendsCount)}</b></div>
-    <div>XP: <b style="color:var(--text)">${escapeHtml(data.xp)}</b> / ${escapeHtml(data.next)}</div>
-  `;
-
-  // actions
-  const isFriend = (social?.friends || []).includes(user);
-  const removeBtn = document.getElementById("removeFriendBtn");
-  if(removeBtn) removeBtn.style.display = isFriend ? "inline-flex" : "none";
-
-  const dmBtn = document.getElementById("dmBtn");
-  if(dmBtn) dmBtn.onclick = ()=> { closeModal(); openDM(user); };
-
-  const friendBtn = document.getElementById("friendBtn");
-  if(friendBtn) friendBtn.onclick = ()=> { socket.emit("friend:request", { to: user }); toast("Friends", "Request sent."); };
-
-  if(removeBtn) removeBtn.onclick = ()=> { socket.emit("friend:remove", { user }); toast("Friends", "Removed."); };
-
-  const blockBtn = document.getElementById("blockBtn");
-  if(blockBtn) blockBtn.onclick = ()=> {
-    socket.emit("user:block", { user });
-    toast("Block", "Blocked user.");
-    closeModal();
+socket.on("loginSuccess", (payload) => {
+  me = {
+    username: payload.username,
+    guest: !!payload.guest,
+    token: payload.token || null
   };
-});
 
-// ---------- startup resume ----------
-(function boot(){
-  // compact defaults applied immediately to avoid “wide” look before login
-  applyTheme(settings.theme);
-  applyDensity(settings.density);
-  applySidebarWidth(settings.sidebar);
-  applyCursor(settings.customCursor);
+  meName.textContent = payload.username;
 
-  // resume if token exists
-  if(token){
-    showLoading("resuming…");
-    socket.emit("resume", { token });
-    setTimeout(()=> hideLoading(), 2000);
+  settings = { ...settings, ...(payload.settings || {}) };
+  bindSettingsUI();
+
+  // show chat
+  loginCard.hidden = true;
+  chatCard.hidden = false;
+
+  // save session only if logged in (not guest)
+  if (!me.guest && me.token) saveSession(me.token, me.username);
+
+  // xp
+  if (!me.guest && payload.xp) {
+    xpWrap.hidden = false;
+    updateXP(payload.xp);
+  } else {
+    xpWrap.hidden = true;
   }
 
-  // right-click mute on main nav buttons too
-  tabGlobal.addEventListener("contextmenu", (e)=>{ e.preventDefault(); toggleMute("global"); });
-})();
+  // default view global
+  setActiveTab("global");
+  setChatHeader("Global", "Public chat");
+  clearMessages();
+  socket.emit("requestGlobalHistory");
+});
 
-// ---------- remove emoji feature ----------
-/* nothing to do because no emoji UI exists */
+socket.on("settings", (srv) => {
+  if (!srv) return;
+  settings = { ...settings, ...srv };
+  bindSettingsUI();
+});
 
-// ---------- ensure inbox/messages are correct ping sources ----------
-function syncUIAfterTab(){
-  updatePings();
-  if(tabInbox.classList.contains("primary")) renderSidebarInbox();
-  if(tabMessages.classList.contains("primary")) renderSidebarMessages();
+socket.on("onlineUsers", (list) => {
+  onlineList.innerHTML = "";
+  (list || []).forEach(({ user }) => {
+    const row = document.createElement("div");
+    row.className = "userRow";
+    row.innerHTML = `<div class="userName">${escapeHTML(user)}</div><div class="userTag">online</div>`;
+
+    // click online user:
+    // - in DMs tab => open DM (guests can't DM)
+    // - otherwise => open profile
+    row.addEventListener("click", () => {
+      if (view.type === "dms" && !me.guest) {
+        if (/^Guest\d{4,5}$/.test(user)) {
+          showToast("Not available", "You can’t DM guest users.");
+          return;
+        }
+        view.withUser = user;
+        setChatHeader(`DM: ${user}`, "Direct messages");
+        clearMessages();
+        socket.emit("dm:history", { withUser: user });
+      } else {
+        socket.emit("profile:get", { user });
+      }
+    });
+
+    onlineList.appendChild(row);
+  });
+});
+
+socket.on("history", (msgs) => {
+  clearMessages();
+  (msgs || []).forEach(addMessage);
+});
+
+socket.on("globalMessage", (msg) => {
+  if (view.type !== "global") return;
+  addMessage(msg);
+});
+
+socket.on("dm:history", ({ msgs } = {}) => {
+  clearMessages();
+  (msgs || []).forEach(addMessage);
+});
+socket.on("dm:message", ({ from, msg } = {}) => {
+  // If currently viewing that DM, show it
+  if (view.type === "dms" && view.withUser && from === view.withUser) {
+    addMessage(msg);
+    return;
+  }
+  // Otherwise ping (no red ping for global, but yes for DMs)
+  ping();
+});
+
+socket.on("groups:list", (groups) => {
+  // Keep it simple: click a group from toasts/inbox; list UI is future
+  // (You asked to avoid unnecessary stuff)
+});
+
+socket.on("group:history", ({ msgs, meta } = {}) => {
+  clearMessages();
+  if (meta?.name) setChatHeader(`GC: ${meta.name}`, `${(meta.members || []).length} members`);
+  (msgs || []).forEach(addMessage);
+});
+socket.on("group:message", ({ groupId, msg } = {}) => {
+  if (view.type === "groups" && view.groupId === groupId) {
+    addMessage(msg);
+  } else {
+    ping();
+  }
+});
+
+socket.on("social:update", (social) => {
+  // friend reqs + group invites only
+  const fr = social?.incoming || [];
+  const gi = social?.groupInvites || [];
+
+  renderFriendRequests(fr);
+  renderGroupInvites(gi);
+
+  const totalInbox = fr.length + gi.length;
+  inboxBadge.hidden = totalInbox <= 0;
+  inboxBadge.textContent = String(totalInbox);
+});
+
+socket.on("ping:update", ({ messages } = {}) => {
+  // pills only for DMs/GCs (global no red)
+  const n = Number(messages || 0);
+  const show = n > 0;
+  dmPill.hidden = !show;
+  gcPill.hidden = !show;
+  dmPill.textContent = String(n);
+  gcPill.textContent = String(n);
+});
+
+socket.on("xp:update", (xp) => updateXP(xp));
+
+socket.on("profile:data", (p) => {
+  if (!p || p.missing) {
+    showToast("Profile", "User not found.");
+    return;
+  }
+  if (p.guest) {
+    showToast("Guest user", p.user);
+    return;
+  }
+
+  const created = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—";
+  showToast(p.user, `Created: ${created} • Level ${p.level} • Messages: ${p.messages}`);
+});
+
+// ---- XP UI + level up toast ----
+function updateXP(xp) {
+  if (!xp || me.guest) return;
+
+  const level = xp.level ?? 1;
+  const cur = xp.xp ?? 0;
+  const next = xp.next ?? 120;
+
+  meLevel.hidden = false;
+  meLevel.textContent = `Lv ${level}`;
+
+  xpLabel.textContent = `Level ${level}`;
+  xpNums.textContent = `${cur} / ${next}`;
+
+  const pct = next > 0 ? Math.max(0, Math.min(100, (cur / next) * 100)) : 0;
+  xpFill.style.width = `${pct}%`;
+
+  if (lastXP && level > lastXP.level) {
+    ping();
+    showToast("Level up!", `You reached Level ${level}.`);
+  }
+  lastXP = { level, xp: cur, next };
 }
 
-// just in case some servers send social late
-setInterval(()=> {
-  if(!me) return;
-  updatePings();
-}, 2000);
+// ---- Inbox rendering ----
+function renderFriendRequests(list) {
+  friendRequestsEl.innerHTML = "";
+  if (!list.length) {
+    friendRequestsEl.innerHTML = `<div class="hint">No friend requests.</div>`;
+    return;
+  }
+  list.forEach((u) => {
+    const row = document.createElement("div");
+    row.className = "settingRow";
+    row.innerHTML = `
+      <div class="settingText">
+        <div class="settingName">${escapeHTML(u)}</div>
+        <div class="settingDesc">Wants to add you.</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn primary">Accept</button>
+        <button class="btn">Decline</button>
+      </div>
+    `;
+    const [acceptBtn, declineBtn] = row.querySelectorAll("button");
+    acceptBtn.addEventListener("click", () => socket.emit("friend:accept", { from: u }));
+    declineBtn.addEventListener("click", () => socket.emit("friend:decline", { from: u }));
+    friendRequestsEl.appendChild(row);
+  });
+}
+
+function renderGroupInvites(list) {
+  groupInvitesEl.innerHTML = "";
+  if (!list.length) {
+    groupInvitesEl.innerHTML = `<div class="hint">No group invites.</div>`;
+    return;
+  }
+  list.forEach((inv) => {
+    const row = document.createElement("div");
+    row.className = "settingRow";
+    row.innerHTML = `
+      <div class="settingText">
+        <div class="settingName">${escapeHTML(inv.groupName || "Unnamed Group")}</div>
+        <div class="settingDesc">Invite from ${escapeHTML(inv.from || "?" )}</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn primary">Join</button>
+        <button class="btn">Decline</button>
+      </div>
+    `;
+    const [joinBtn, declineBtn] = row.querySelectorAll("button");
+    joinBtn.addEventListener("click", () => {
+      // switch to groups view + load history after accept
+      socket.emit("group:invite:accept", { groupId: inv.groupId });
+      view = { type: "groups", groupId: inv.groupId, withUser: null };
+      setActiveTab("groups");
+      setChatHeader(`GC: ${inv.groupName || "Unnamed Group"}`, "Loading…");
+      clearMessages();
+      closeModals();
+      setTimeout(() => socket.emit("group:history", { groupId: inv.groupId }), 200);
+    });
+    declineBtn.addEventListener("click", () => socket.emit("group:invite:decline", { groupId: inv.groupId }));
+    groupInvitesEl.appendChild(row);
+  });
+}
