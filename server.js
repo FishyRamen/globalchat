@@ -1,13 +1,14 @@
-/**
- * tonkotsu.online — server.js
- * Express + Socket.IO + persistent JSON storage (data/)
- *
- * DATA PERSISTENCE:
- * - Create a folder named: data/
- * - Add a Render disk later mounted to: /opt/render/project/src/data
- */
-
 "use strict";
+
+/**
+ * tonkotsu.online server
+ * - persistent JSON storage (data/)
+ * - accounts + sessions (auto-login)
+ * - global + DM + groups
+ * - profiles + stats + xp/levels
+ * - friends + requests + blocks
+ * - NO alerts (server only emits events)
+ */
 
 const express = require("express");
 const http = require("http");
@@ -24,9 +25,9 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+app.get("/", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
-/* ---------------------- persistence ---------------------- */
+/* -------------------- persistence -------------------- */
 const DATA_DIR = path.join(__dirname, "data");
 const FILES = {
   users: path.join(DATA_DIR, "users.json"),
@@ -36,31 +37,17 @@ const FILES = {
   sessions: path.join(DATA_DIR, "sessions.json"),
 };
 
-function ensureDir(p) {
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-}
-function ensureFile(file, fallback) {
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(fallback, null, 2));
-}
-function readJSON(file, fallback) {
-  try {
-    const raw = fs.readFileSync(file, "utf8");
-    if (!raw) return fallback;
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-function writeJSON(file, data) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
+function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
+function ensureFile(file, fallback) { if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(fallback, null, 2)); }
+function readJSON(file, fallback) { try { return JSON.parse(fs.readFileSync(file, "utf8") || ""); } catch { return fallback; } }
+function writeJSON(file, data) { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
 
 ensureDir(DATA_DIR);
-ensureFile(FILES.users, {});    // username -> { passwordHash, createdAt, settings, unread, friends, ... }
-ensureFile(FILES.global, []);   // [{id,user,text,ts}]
-ensureFile(FILES.dms, {});      // key "a|b" -> [{id,from,to,text,ts}]
-ensureFile(FILES.groups, {});   // gid -> {id,name,owner,members[],messages[]}
-ensureFile(FILES.sessions, {}); // token -> { user, createdAt }
+ensureFile(FILES.users, {});
+ensureFile(FILES.global, []);
+ensureFile(FILES.dms, {});
+ensureFile(FILES.groups, {});
+ensureFile(FILES.sessions, {});
 
 let USERS = readJSON(FILES.users, {});
 let GLOBAL = readJSON(FILES.global, []);
@@ -68,25 +55,23 @@ let DMS = readJSON(FILES.dms, {});
 let GROUPS = readJSON(FILES.groups, {});
 let SESSIONS = readJSON(FILES.sessions, {});
 
-function saveAll() {
-  writeJSON(FILES.users, USERS);
-  writeJSON(FILES.global, GLOBAL);
-  writeJSON(FILES.dms, DMS);
-  writeJSON(FILES.groups, GROUPS);
-  writeJSON(FILES.sessions, SESSIONS);
-}
+function saveUsers() { writeJSON(FILES.users, USERS); }
+function saveGlobal() { writeJSON(FILES.global, GLOBAL); }
+function saveDms() { writeJSON(FILES.dms, DMS); }
+function saveGroups() { writeJSON(FILES.groups, GROUPS); }
+function saveSessions() { writeJSON(FILES.sessions, SESSIONS); }
 
-/* ---------------------- helpers ---------------------- */
-const ONLINE = new Map();            // socket.id -> username
-const USER_SOCKETS = new Map();      // username -> Set(socket.id)
+/* -------------------- helpers -------------------- */
+const ONLINE = new Map();       // socket.id -> username
+const USER_SOCKETS = new Map(); // username -> Set(socket.id)
 
 function now() { return Date.now(); }
 function genId() { return crypto.randomBytes(10).toString("hex") + "-" + now().toString(36); }
 function norm(s) { return String(s || "").trim(); }
+function isGuest(u) { return /^Guest\d{1,10}$/.test(String(u || "")); }
 
 function hashPass(pw) {
-  // simple salted hash for hobby use (still not "bcrypt secure", but better than plain)
-  const salt = "tonkotsu_salt_v1";
+  const salt = "tonkotsu_salt_v2";
   return crypto.createHash("sha256").update(salt + String(pw || "")).digest("hex");
 }
 
@@ -95,43 +80,64 @@ function dmKey(a, b) {
   return x < y ? `${x}|${y}` : `${y}|${x}`;
 }
 
-function isGuest(u) {
-  return /^Guest\d{1,10}$/.test(String(u || ""));
+function defaultSettings() {
+  return {
+    muteAll: false,
+    muteGlobal: true,
+    muteDM: false,
+    muteGroups: false,
+    sound: true,
+    volume: 0.2,
+    reduceMotion: false,
+    customCursor: false,
+    hideMildProfanity: false,
+    theme: "dark",     // dark | vortex | abyss | carbon
+    density: 0.55,     // 0 compact -> 1 cozy
+  };
+}
+
+// username rules: letters numbers _ .
+const USERNAME_RX = /^[A-Za-z0-9._]{3,20}$/;
+
+// big-ish banned word list for usernames (slurs + explicit / 18+)
+const USERNAME_BANNED = [
+  // slurs / hateful (partial list)
+  "nigger","nigga","niqqa","faggot","fag","tranny","kike","spic","chink","wetback",
+  "retard","rape","rapist",
+  // explicit / 18+ / porn related
+  "porn","xxx","sex","sexy","nsfw","onlyfans","hentai","boobs","tits","dick","cock","pussy",
+  "cum","cumming","orgasm","blowjob","handjob","anal","milf","bdsm",
+];
+
+function usernameAllowed(u) {
+  if (!USERNAME_RX.test(u)) return { ok: false, reason: "Usernames must be 3-20 chars and only use letters, numbers, _ or ." };
+  const low = u.toLowerCase();
+  for (const w of USERNAME_BANNED) {
+    if (low.includes(w)) return { ok: false, reason: "That username isn’t allowed." };
+  }
+  return { ok: true };
 }
 
 function ensureUser(user) {
   if (!USERS[user]) return null;
   USERS[user].settings = USERS[user].settings || defaultSettings();
-  USERS[user].unread = USERS[user].unread || { global: 0, dm: {}, group: {} };
-  USERS[user].friends = USERS[user].friends || [];
+  USERS[user].createdAt = USERS[user].createdAt || now();
+  USERS[user].stats = USERS[user].stats || { total: 0, global: 0, dm: 0, group: 0 };
+  USERS[user].social = USERS[user].social || { friends: [], incoming: [], outgoing: [], blocked: [] };
+  USERS[user].xp = USERS[user].xp || { level: 1, xp: 0 };
   return USERS[user];
-}
-
-function defaultSettings() {
-  return {
-    muteAll: false,
-    muteGlobal: true,    // YOU asked default global ping OFF
-    muteDM: false,
-    muteGroups: false,
-    sound: true,
-    volume: 0.20,
-    reduceMotion: false,
-    customCursor: false,
-    dmCensor: false,     // optional: client can hide/censor DM words if enabled
-  };
 }
 
 function addSocketToUser(user, sid) {
   if (!USER_SOCKETS.has(user)) USER_SOCKETS.set(user, new Set());
   USER_SOCKETS.get(user).add(sid);
 }
-
 function removeSocketFromUser(user, sid) {
-  if (!USER_SOCKETS.has(user)) return;
-  USER_SOCKETS.get(user).delete(sid);
-  if (USER_SOCKETS.get(user).size === 0) USER_SOCKETS.delete(user);
+  const set = USER_SOCKETS.get(user);
+  if (!set) return;
+  set.delete(sid);
+  if (set.size === 0) USER_SOCKETS.delete(user);
 }
-
 function emitToUser(user, event, payload) {
   const set = USER_SOCKETS.get(user);
   if (!set) return;
@@ -139,167 +145,142 @@ function emitToUser(user, event, payload) {
 }
 
 function onlineUsersPayload() {
-  // Only online users
-  const unique = new Set();
+  const uniq = new Set();
   const list = [];
   for (const u of ONLINE.values()) {
-    if (unique.has(u)) continue;
-    unique.add(u);
+    if (!u || uniq.has(u)) continue;
+    uniq.add(u);
     list.push({ user: u });
   }
   list.sort((a, b) => a.user.localeCompare(b.user));
   return list;
 }
+function broadcastOnline() { io.emit("onlineUsers", onlineUsersPayload()); }
 
-function broadcastOnline() {
-  io.emit("onlineUsers", onlineUsersPayload());
+// XP/Level curve
+function xpNeeded(level) {
+  // grows faster each level
+  // L1->2: 120, L2->3: 165, L3->4: 220, ...
+  return Math.floor(90 + level * level * 30);
+}
+function addXp(user, amount) {
+  const U = ensureUser(user);
+  if (!U) return;
+  const X = U.xp || (U.xp = { level: 1, xp: 0 });
+
+  X.xp += amount;
+  while (X.xp >= xpNeeded(X.level)) {
+    X.xp -= xpNeeded(X.level);
+    X.level += 1;
+  }
+  saveUsers();
+  emitToUser(user, "xp:update", { level: X.level, xp: X.xp, next: xpNeeded(X.level) });
 }
 
-function makeToken() {
-  return crypto.randomBytes(24).toString("hex");
-}
-
-/* ---------------------- profanity filter (GLOBAL only) ----------------------
-   - Blocks N-word + bypass variants
-   - Blocks direct death threats / kill threats patterns
-   Note: This is a heuristic (still useful for your use-case).
-*/
+/* -------------------- profanity filter (GLOBAL) -------------------- */
 function normalizeForFilter(s) {
   return String(s || "")
     .toLowerCase()
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")        // zero width
-    .replace(/[^a-z0-9\s]/g, " ")                // remove symbols
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function containsGlobalBan(text) {
-  const raw = String(text || "");
-  const t = normalizeForFilter(raw);
+  const t = normalizeForFilter(text);
 
-  // N-word base + some leetspeak / bypass patterns
-  const nwordPatterns = [
-    /\bn\s*[i1l!]\s*[gq]\s*[gq]\s*[e3a]\s*r\s*\b/,                 // n i g g e r
-    /\bn\s*[i1l!]\s*[gq]\s*[gq]\s*[a4]\s*\b/,                      // n i g g a
-    /\bni[gq]{2}er\b/,                                              // niggger-ish
-    /\bni[gq]{2}a\b/,
-    /\bnigg(er|a|ah|uh|uhh|as|az)\b/,
+  const hard = [
+    // n-word variants
+    /\bn\s*[i1l!]\s*[gq]\s*[gq]\s*[e3a]\s*r\b/,
+    /\bn\s*[i1l!]\s*[gq]\s*[gq]\s*[a4]\b/,
+    /\bnigg(er|a|ah|uh|as|az)\b/,
     /\bniqq(a|er)\b/,
-    /\bnegro\b/,                                                   // some users may want this blocked too
-  ];
-
-  for (const rx of nwordPatterns) {
-    if (rx.test(t)) return { blocked: true, reason: "Blocked word (global chat).", code: "PROFANITY" };
-  }
-
-  // Threat patterns (direct)
-  const threatPatterns = [
+    /\bfaggot\b/,
+    /\btranny\b/,
+    /\bkike\b/,
+    /\bspic\b/,
+    /\bchink\b/,
+    // threats
     /\bkill\s+yourself\b/,
     /\bkys\b/,
     /\bi\s*(will|am\s+going\s+to|gonna)\s+kill\s+you\b/,
-    /\bim\s*(gonna|going\s+to)\s+kill\s+you\b/,
     /\bgo\s+die\b/,
-    /\bhope\s+you\s+die\b/,
     /\bi\s*hope\s+you\s+die\b/,
-    /\bdie\s+(in\s+)?(a\s+)?fire\b/,
     /\bshoot\s+you\b/,
     /\bstab\s+you\b/,
   ];
 
-  for (const rx of threatPatterns) {
-    if (rx.test(t)) return { blocked: true, reason: "Threats are blocked in global chat.", code: "THREAT" };
+  for (const rx of hard) {
+    if (rx.test(t)) return { blocked: true, reason: "That message is blocked in global chat.", code: "HARMFUL" };
   }
-
   return { blocked: false };
 }
 
-/* ---------------------- pings/unreads ---------------------- */
-function resetUnread(user, scope, id) {
-  const U = ensureUser(user);
-  if (!U) return;
-  U.unread = U.unread || { global: 0, dm: {}, group: {} };
-
-  if (scope === "global") U.unread.global = 0;
-  if (scope === "dm" && id) U.unread.dm[id] = 0;
-  if (scope === "group" && id) U.unread.group[id] = 0;
-
-  writeJSON(FILES.users, USERS);
-  emitToUser(user, "unread", U.unread);
+/* -------------------- groups helpers -------------------- */
+function groupSummaryFor(user) {
+  const list = [];
+  for (const g of Object.values(GROUPS)) {
+    if (g && Array.isArray(g.members) && g.members.includes(user)) {
+      list.push({ id: g.id, name: g.name, owner: g.owner, members: g.members.length });
+    }
+  }
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  return list;
 }
 
-function incUnread(user, scope, id) {
-  const U = ensureUser(user);
-  if (!U) return;
-  U.unread = U.unread || { global: 0, dm: {}, group: {} };
-
-  if (scope === "global") U.unread.global = (U.unread.global || 0) + 1;
-  if (scope === "dm" && id) U.unread.dm[id] = (U.unread.dm[id] || 0) + 1;
-  if (scope === "group" && id) U.unread.group[id] = (U.unread.group[id] || 0) + 1;
-
-  writeJSON(FILES.users, USERS);
-  emitToUser(user, "unread", U.unread);
+/* -------------------- social helpers -------------------- */
+function isBlocked(viewer, other) {
+  const V = ensureUser(viewer);
+  if (!V) return false;
+  return V.social?.blocked?.includes(other) || false;
 }
 
-/* ---------------------- socket logic ---------------------- */
+/* -------------------- socket -------------------- */
 io.on("connection", (socket) => {
   socket.data.user = null;
-  socket.data.view = { type: "none", id: null }; // used for pings
+  socket.data.view = { type: "none", id: null };
 
-  // client can ask for history whenever opening global
+  socket.on("view:set", ({ type, id }) => {
+    socket.data.view = { type: type || "none", id: id || null };
+  });
+
   socket.on("requestGlobalHistory", () => {
     socket.emit("history", GLOBAL);
   });
 
-  // client tells server what view is active (so we don't ping wrong)
-  socket.on("view:set", ({ type, id }) => {
-    socket.data.view = { type: type || "none", id: id || null };
-    const u = socket.data.user;
-    if (!u || isGuest(u)) return;
-
-    // reset unread when they open the view
-    if (type === "global") resetUnread(u, "global");
-    if (type === "dm" && id) resetUnread(u, "dm", id);
-    if (type === "group" && id) resetUnread(u, "group", id);
-  });
-
-  // ---- Resume session (auto-login) ----
+  // -------- resume (auto-login) --------
   socket.on("resume", ({ token }) => {
     const t = norm(token);
-    if (!t || !SESSIONS[t]) {
+    const sess = SESSIONS[t];
+    if (!t || !sess || !sess.user || !USERS[sess.user]) {
       socket.emit("resumeFail");
       return;
     }
-    const u = SESSIONS[t].user;
-    if (!u || !USERS[u]) {
-      delete SESSIONS[t];
-      writeJSON(FILES.sessions, SESSIONS);
-      socket.emit("resumeFail");
-      return;
-    }
+
+    const u = sess.user;
+    ensureUser(u);
 
     socket.data.user = u;
     ONLINE.set(socket.id, u);
     addSocketToUser(u, socket.id);
-
-    ensureUser(u);
 
     socket.emit("loginSuccess", {
       username: u,
       guest: false,
       token: t,
       settings: USERS[u].settings,
-      unread: USERS[u].unread,
+      social: USERS[u].social,
+      xp: USERS[u].xp,
     });
 
-    // send current global history (optional) + online
     socket.emit("history", GLOBAL);
+    socket.emit("groups:list", groupSummaryFor(u));
     broadcastOnline();
   });
 
-  // ---- LOGIN ----
+  // -------- login --------
   socket.on("login", (payload) => {
-    // Accept BOTH formats to avoid mismatches:
-    // { username, password, guest } OR { user, pass, guest }
     const guest = !!payload?.guest;
 
     if (guest) {
@@ -312,7 +293,8 @@ io.on("connection", (socket) => {
         guest: true,
         token: null,
         settings: null,
-        unread: { global: 0, dm: {}, group: {} },
+        social: null,
+        xp: { level: 1, xp: 0, next: xpNeeded(1) },
       });
 
       socket.emit("history", GLOBAL);
@@ -323,22 +305,27 @@ io.on("connection", (socket) => {
     const username = norm(payload?.username ?? payload?.user);
     const password = String(payload?.password ?? payload?.pass ?? "");
 
-    // IMPORTANT: don't allow empty credentials on normal join
     if (!username || !password) {
       socket.emit("loginError", "Missing credentials");
       return;
     }
 
-    // create or validate
+    const ok = usernameAllowed(username);
+    if (!ok.ok) {
+      socket.emit("loginError", ok.reason);
+      return;
+    }
+
     if (!USERS[username]) {
       USERS[username] = {
         passwordHash: hashPass(password),
         createdAt: now(),
         settings: defaultSettings(),
-        unread: { global: 0, dm: {}, group: {} },
-        friends: [],
+        stats: { total: 0, global: 0, dm: 0, group: 0 },
+        social: { friends: [], incoming: [], outgoing: [], blocked: [] },
+        xp: { level: 1, xp: 0 },
       };
-      writeJSON(FILES.users, USERS);
+      saveUsers();
     } else {
       ensureUser(username);
       if (USERS[username].passwordHash !== hashPass(password)) {
@@ -347,10 +334,9 @@ io.on("connection", (socket) => {
       }
     }
 
-    // make session token
-    const token = makeToken();
+    const token = crypto.randomBytes(24).toString("hex");
     SESSIONS[token] = { user: username, createdAt: now() };
-    writeJSON(FILES.sessions, SESSIONS);
+    saveSessions();
 
     socket.data.user = username;
     ONLINE.set(socket.id, username);
@@ -361,26 +347,151 @@ io.on("connection", (socket) => {
       guest: false,
       token,
       settings: USERS[username].settings,
-      unread: USERS[username].unread,
+      social: USERS[username].social,
+      xp: USERS[username].xp,
     });
 
     socket.emit("history", GLOBAL);
+    socket.emit("groups:list", groupSummaryFor(username));
     broadcastOnline();
   });
 
-  // ---- SETTINGS ----
+  // -------- settings update --------
   socket.on("settings:update", (settings) => {
     const u = socket.data.user;
-    if (!u || isGuest(u) || !USERS[u]) return;
-
+    if (!u || isGuest(u)) return;
     ensureUser(u);
     USERS[u].settings = { ...USERS[u].settings, ...(settings || {}) };
-    writeJSON(FILES.users, USERS);
-
+    saveUsers();
     emitToUser(u, "settings", USERS[u].settings);
   });
 
-  // ---- GLOBAL MESSAGE ----
+  // -------- profile get --------
+  socket.on("profile:get", ({ user }) => {
+    const target = norm(user);
+    if (!target) return;
+
+    // guest profiles: limited
+    if (isGuest(target)) {
+      socket.emit("profile:data", { user: target, guest: true, createdAt: null, xp: { level: 1, xp: 0 }, stats: { total: 0 } });
+      return;
+    }
+
+    const U = ensureUser(target);
+    if (!U) {
+      socket.emit("profile:error", "User not found.");
+      return;
+    }
+
+    socket.emit("profile:data", {
+      user: target,
+      guest: false,
+      createdAt: U.createdAt,
+      xp: { level: U.xp.level, xp: U.xp.xp, next: xpNeeded(U.xp.level) },
+      stats: U.stats,
+      socialCounts: {
+        friends: U.social.friends.length,
+        blocked: U.social.blocked.length,
+      }
+    });
+  });
+
+  // -------- social: friend request / accept / remove / block --------
+  socket.on("friend:request", ({ to }) => {
+    const me = socket.data.user;
+    const target = norm(to);
+    if (!me || isGuest(me)) return;
+    if (!target || !USERS[target]) return;
+    if (target === me) return;
+
+    ensureUser(me);
+    ensureUser(target);
+
+    if (USERS[me].social.friends.includes(target)) return;
+    if (USERS[me].social.outgoing.includes(target)) return;
+
+    // if blocked either way, ignore
+    if (isBlocked(me, target) || isBlocked(target, me)) return;
+
+    USERS[me].social.outgoing.push(target);
+    USERS[target].social.incoming.push(me);
+    saveUsers();
+
+    emitToUser(me, "social:update", USERS[me].social);
+    emitToUser(target, "social:update", USERS[target].social);
+  });
+
+  socket.on("friend:accept", ({ from }) => {
+    const me = socket.data.user;
+    const who = norm(from);
+    if (!me || isGuest(me)) return;
+    if (!who || !USERS[who]) return;
+
+    ensureUser(me);
+    ensureUser(who);
+
+    // remove pending
+    USERS[me].social.incoming = USERS[me].social.incoming.filter(x => x !== who);
+    USERS[who].social.outgoing = USERS[who].social.outgoing.filter(x => x !== me);
+
+    // add friends both sides
+    if (!USERS[me].social.friends.includes(who)) USERS[me].social.friends.push(who);
+    if (!USERS[who].social.friends.includes(me)) USERS[who].social.friends.push(me);
+
+    saveUsers();
+    emitToUser(me, "social:update", USERS[me].social);
+    emitToUser(who, "social:update", USERS[who].social);
+  });
+
+  socket.on("friend:remove", ({ user }) => {
+    const me = socket.data.user;
+    const who = norm(user);
+    if (!me || isGuest(me)) return;
+    if (!who || !USERS[who]) return;
+
+    ensureUser(me);
+    ensureUser(who);
+
+    USERS[me].social.friends = USERS[me].social.friends.filter(x => x !== who);
+    USERS[who].social.friends = USERS[who].social.friends.filter(x => x !== me);
+
+    saveUsers();
+    emitToUser(me, "social:update", USERS[me].social);
+    emitToUser(who, "social:update", USERS[who].social);
+  });
+
+  socket.on("block:set", ({ user, blocked }) => {
+    const me = socket.data.user;
+    const who = norm(user);
+    if (!me || isGuest(me)) return;
+    if (!who || !USERS[who] || who === me) return;
+
+    ensureUser(me);
+
+    const list = USERS[me].social.blocked;
+    const isB = list.includes(who);
+
+    if (blocked && !isB) list.push(who);
+    if (!blocked && isB) USERS[me].social.blocked = list.filter(x => x !== who);
+
+    // if blocked, also remove friend relation and pending
+    if (blocked) {
+      USERS[me].social.friends = USERS[me].social.friends.filter(x => x !== who);
+      USERS[me].social.incoming = USERS[me].social.incoming.filter(x => x !== who);
+      USERS[me].social.outgoing = USERS[me].social.outgoing.filter(x => x !== who);
+
+      ensureUser(who);
+      USERS[who].social.friends = USERS[who].social.friends.filter(x => x !== me);
+      USERS[who].social.incoming = USERS[who].social.incoming.filter(x => x !== me);
+      USERS[who].social.outgoing = USERS[who].social.outgoing.filter(x => x !== me);
+    }
+
+    saveUsers();
+    emitToUser(me, "social:update", USERS[me].social);
+    if (USERS[who]) emitToUser(who, "social:update", USERS[who].social);
+  });
+
+  // -------- GLOBAL SEND --------
   socket.on("sendGlobal", ({ text, ts }) => {
     const u = socket.data.user;
     if (!u) return;
@@ -388,61 +499,47 @@ io.on("connection", (socket) => {
     const msg = String(text || "").trim();
     if (!msg) return;
 
-    // filter invalid timestamps (prevents NaN)
     const time = Number.isFinite(ts) ? ts : now();
 
-    // profanity filter global only
+    // server-enforced harmful filter
     const check = containsGlobalBan(msg);
     if (check.blocked) {
       socket.emit("sendError", { scope: "global", reason: check.reason, code: check.code });
       return;
     }
 
-    const payload = {
-      id: genId(),
-      user: u,
-      text: msg.slice(0, 900),
-      ts: time,
-    };
-
+    const payload = { id: genId(), user: u, text: msg.slice(0, 900), ts: time };
     GLOBAL.push(payload);
-
-    // trim global (keep last 450)
     if (GLOBAL.length > 450) GLOBAL = GLOBAL.slice(GLOBAL.length - 450);
-
-    writeJSON(FILES.global, GLOBAL);
+    saveGlobal();
 
     io.emit("globalMessage", payload);
 
-    // unread logic: everyone except those currently viewing global
-    for (const [sid, user] of ONLINE.entries()) {
-      if (!user || isGuest(user)) continue;
-      if (!USERS[user]) continue;
-
-      const s = io.sockets.sockets.get(sid);
-      const view = s?.data?.view;
-
-      const st = USERS[user].settings || defaultSettings();
-      const muted = st.muteAll || st.muteGlobal;
-
-      if (!muted && !(view && view.type === "global")) {
-        incUnread(user, "global");
-      }
+    // stats/xp for non-guest
+    if (!isGuest(u)) {
+      ensureUser(u);
+      USERS[u].stats.total += 1;
+      USERS[u].stats.global += 1;
+      saveUsers();
+      addXp(u, 8);
     }
   });
 
-  // ---- DM SEND + HISTORY ----
+  // -------- DM HISTORY / SEND --------
   socket.on("dm:history", ({ withUser }) => {
     const me = socket.data.user;
     const other = norm(withUser);
     if (!me || isGuest(me)) return;
     if (!other || !USERS[other]) return;
 
+    if (isBlocked(me, other) || isBlocked(other, me)) {
+      socket.emit("dm:history", { withUser: other, msgs: [] });
+      return;
+    }
+
     const key = dmKey(me, other);
     const list = Array.isArray(DMS[key]) ? DMS[key] : [];
-
     socket.emit("dm:history", { withUser: other, msgs: list });
-    resetUnread(me, "dm", other);
   });
 
   socket.on("dm:send", ({ to, text }) => {
@@ -460,51 +557,40 @@ io.on("connection", (socket) => {
     }
     if (!msg) return;
 
+    // block enforcement
+    if (isBlocked(from, target) || isBlocked(target, from)) {
+      socket.emit("sendError", { scope: "dm", reason: "You can’t message this user." });
+      return;
+    }
+
     const key = dmKey(from, target);
     if (!Array.isArray(DMS[key])) DMS[key] = [];
-
     const payload = { id: genId(), from, to: target, text: msg.slice(0, 1200), ts: now() };
     DMS[key].push(payload);
     if (DMS[key].length > 500) DMS[key] = DMS[key].slice(DMS[key].length - 500);
+    saveDms();
 
-    writeJSON(FILES.dms, DMS);
-
-    // deliver to both users
     emitToUser(from, "dm:message", payload);
     emitToUser(target, "dm:message", payload);
 
-    // unread for target if not currently viewing that DM
-    const st = ensureUser(target)?.settings || defaultSettings();
-    const muted = st.muteAll || st.muteDM;
-    if (!muted) {
-      const set = USER_SOCKETS.get(target);
-      let isViewing = false;
-      if (set) {
-        for (const sid of set) {
-          const s = io.sockets.sockets.get(sid);
-          const view = s?.data?.view;
-          if (view && view.type === "dm" && view.id === from) isViewing = true;
-        }
-      }
-      if (!isViewing) incUnread(target, "dm", from);
-    }
+    ensureUser(from);
+    USERS[from].stats.total += 1;
+    USERS[from].stats.dm += 1;
+    saveUsers();
+    addXp(from, 10);
   });
 
-  // ---- GROUPS ----
+  // -------- GROUPS LIST --------
   socket.on("groups:list", () => {
     const me = socket.data.user;
     if (!me || isGuest(me)) {
       socket.emit("groups:list", []);
       return;
     }
-
-    const list = Object.values(GROUPS)
-      .filter((g) => Array.isArray(g.members) && g.members.includes(me))
-      .map((g) => ({ id: g.id, name: g.name, owner: g.owner, members: g.members.length }));
-
-    socket.emit("groups:list", list);
+    socket.emit("groups:list", groupSummaryFor(me));
   });
 
+  // -------- GROUP CREATE --------
   socket.on("group:create", ({ name }) => {
     const me = socket.data.user;
     if (!me || isGuest(me)) {
@@ -524,23 +610,31 @@ io.on("connection", (socket) => {
       owner: me,
       members: [me],
       messages: [],
+      createdAt: now(),
     };
-    writeJSON(FILES.groups, GROUPS);
+    saveGroups();
 
-    emitToUser(me, "group:created", GROUPS[gid]);
+    socket.emit("group:created", { id: gid, name: GROUPS[gid].name, owner: me, members: 1 });
+    socket.emit("groups:list", groupSummaryFor(me));
   });
 
+  // -------- GROUP HISTORY --------
   socket.on("group:history", ({ groupId }) => {
     const me = socket.data.user;
     if (!me || isGuest(me)) return;
+
     const gid = norm(groupId);
     const g = GROUPS[gid];
     if (!g || !g.members.includes(me)) return;
 
-    socket.emit("group:history", { groupId: gid, msgs: g.messages || [], meta: { name: g.name, owner: g.owner } });
-    resetUnread(me, "group", gid);
+    socket.emit("group:history", {
+      groupId: gid,
+      meta: { id: gid, name: g.name, owner: g.owner, members: g.members },
+      msgs: g.messages || [],
+    });
   });
 
+  // -------- GROUP SEND --------
   socket.on("group:send", ({ groupId, text }) => {
     const me = socket.data.user;
     if (!me || isGuest(me)) return;
@@ -548,40 +642,143 @@ io.on("connection", (socket) => {
     const gid = norm(groupId);
     const g = GROUPS[gid];
     const msg = String(text || "").trim();
-
     if (!g || !g.members.includes(me) || !msg) return;
 
     const payload = { id: genId(), user: me, text: msg.slice(0, 1200), ts: now() };
     g.messages = g.messages || [];
     g.messages.push(payload);
     if (g.messages.length > 700) g.messages = g.messages.slice(g.messages.length - 700);
+    saveGroups();
 
-    writeJSON(FILES.groups, GROUPS);
-
-    // broadcast to all members
     for (const member of g.members) emitToUser(member, "group:message", { groupId: gid, msg: payload });
 
-    // unread increments for members not currently viewing this group
-    for (const member of g.members) {
-      if (member === me) continue;
-      const st = ensureUser(member)?.settings || defaultSettings();
-      const muted = st.muteAll || st.muteGroups;
-      if (muted) continue;
+    ensureUser(me);
+    USERS[me].stats.total += 1;
+    USERS[me].stats.group += 1;
+    saveUsers();
+    addXp(me, 12);
+  });
 
-      const set = USER_SOCKETS.get(member);
-      let isViewing = false;
-      if (set) {
-        for (const sid of set) {
-          const s = io.sockets.sockets.get(sid);
-          const view = s?.data?.view;
-          if (view && view.type === "group" && view.id === gid) isViewing = true;
-        }
-      }
-      if (!isViewing) incUnread(member, "group", gid);
+  // -------- GROUP ADD MEMBER (owner-only) --------
+  socket.on("group:addMember", ({ groupId, user }) => {
+    const me = socket.data.user;
+    if (!me || isGuest(me)) return;
+
+    const gid = norm(groupId);
+    const who = norm(user);
+    const g = GROUPS[gid];
+    if (!g) return;
+
+    if (g.owner !== me) {
+      socket.emit("sendError", { scope: "group", reason: "Owner only." });
+      return;
+    }
+    if (!who || !USERS[who]) {
+      socket.emit("sendError", { scope: "group", reason: "User not found." });
+      return;
+    }
+    if (g.members.includes(who)) {
+      socket.emit("sendError", { scope: "group", reason: "User is already in the group." });
+      return;
+    }
+
+    // block check (owner cannot add someone who blocked them / owner blocked them)
+    if (isBlocked(me, who) || isBlocked(who, me)) {
+      socket.emit("sendError", { scope: "group", reason: "Can’t add this user (blocked)." });
+      return;
+    }
+
+    g.members.push(who);
+    saveGroups();
+
+    // notify both
+    emitToUser(me, "groups:list", groupSummaryFor(me));
+    emitToUser(who, "groups:list", groupSummaryFor(who));
+
+    emitToUser(who, "group:added", { id: g.id, name: g.name, owner: g.owner });
+    emitToUser(me, "group:meta", { groupId: g.id, name: g.name, owner: g.owner, members: g.members });
+    emitToUser(who, "group:meta", { groupId: g.id, name: g.name, owner: g.owner, members: g.members });
+  });
+
+  // -------- GROUP REMOVE MEMBER (owner-only) --------
+  socket.on("group:removeMember", ({ groupId, user }) => {
+    const me = socket.data.user;
+    if (!me || isGuest(me)) return;
+
+    const gid = norm(groupId);
+    const who = norm(user);
+    const g = GROUPS[gid];
+    if (!g) return;
+
+    if (g.owner !== me) {
+      socket.emit("sendError", { scope: "group", reason: "Owner only." });
+      return;
+    }
+    if (!who || !g.members.includes(who)) return;
+    if (who === g.owner) {
+      socket.emit("sendError", { scope: "group", reason: "Transfer ownership before removing the owner." });
+      return;
+    }
+
+    g.members = g.members.filter(x => x !== who);
+    saveGroups();
+
+    emitToUser(me, "groups:list", groupSummaryFor(me));
+    emitToUser(who, "groups:list", groupSummaryFor(who));
+    emitToUser(who, "group:removed", { groupId: gid, name: g.name });
+
+    for (const member of g.members) emitToUser(member, "group:meta", { groupId: gid, name: g.name, owner: g.owner, members: g.members });
+  });
+
+  // -------- GROUP LEAVE (any member) --------
+  socket.on("group:leave", ({ groupId }) => {
+    const me = socket.data.user;
+    if (!me || isGuest(me)) return;
+
+    const gid = norm(groupId);
+    const g = GROUPS[gid];
+    if (!g || !g.members.includes(me)) return;
+
+    // owner leaving requires transfer or delete
+    if (g.owner === me) {
+      socket.emit("sendError", { scope: "group", reason: "Owner must transfer ownership or delete the group." });
+      return;
+    }
+
+    g.members = g.members.filter(x => x !== me);
+    saveGroups();
+
+    socket.emit("groups:list", groupSummaryFor(me));
+    socket.emit("group:left", { groupId: gid });
+
+    for (const member of g.members) emitToUser(member, "group:meta", { groupId: gid, name: g.name, owner: g.owner, members: g.members });
+  });
+
+  // -------- GROUP DELETE (owner-only) --------
+  socket.on("group:delete", ({ groupId }) => {
+    const me = socket.data.user;
+    if (!me || isGuest(me)) return;
+
+    const gid = norm(groupId);
+    const g = GROUPS[gid];
+    if (!g) return;
+
+    if (g.owner !== me) {
+      socket.emit("sendError", { scope: "group", reason: "Owner only." });
+      return;
+    }
+
+    const members = g.members.slice();
+    delete GROUPS[gid];
+    saveGroups();
+
+    for (const m of members) {
+      emitToUser(m, "groups:list", groupSummaryFor(m));
+      emitToUser(m, "group:deleted", { groupId: gid });
     }
   });
 
-  // ---- GROUP OWNER ONLY: transfer ownership ----
+  // -------- GROUP TRANSFER OWNER (owner-only) --------
   socket.on("group:transferOwner", ({ groupId, newOwner }) => {
     const me = socket.data.user;
     if (!me || isGuest(me)) return;
@@ -589,8 +786,8 @@ io.on("connection", (socket) => {
     const gid = norm(groupId);
     const to = norm(newOwner);
     const g = GROUPS[gid];
-
     if (!g) return;
+
     if (g.owner !== me) {
       socket.emit("sendError", { scope: "group", reason: "Owner only." });
       return;
@@ -601,24 +798,24 @@ io.on("connection", (socket) => {
     }
 
     g.owner = to;
-    writeJSON(FILES.groups, GROUPS);
+    saveGroups();
 
-    // apply instantly for everyone
     for (const member of g.members) {
-      emitToUser(member, "group:meta", { groupId: gid, name: g.name, owner: g.owner });
+      emitToUser(member, "group:meta", { groupId: gid, name: g.name, owner: g.owner, members: g.members });
+      emitToUser(member, "groups:list", groupSummaryFor(member));
     }
   });
 
-  // ---- DISCONNECT ----
+  // -------- disconnect --------
   socket.on("disconnect", () => {
     const u = ONLINE.get(socket.id);
     ONLINE.delete(socket.id);
-
     if (u) removeSocketFromUser(u, socket.id);
     broadcastOnline();
   });
+
+  // send online list to new socket quickly
+  broadcastOnline();
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ tonkotsu.online listening on ${PORT}`);
-});
+server.listen(PORT, "0.0.0.0", () => console.log(`✅ listening on ${PORT}`));
