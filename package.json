@@ -2,7 +2,7 @@
   "name": "tonkotsu-online",
   "version": "1.0.0",
   "main": "server.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
@@ -10,4 +10,4 @@
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
   }
-}
+
