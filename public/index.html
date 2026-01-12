@@ -1,509 +1,716 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>tonkotsu.online</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+
   <style>
     :root{
-      --bg:#0b0d12;
-      --bg2:#07090d;
-      --card:rgba(14,16,22,.86);
-      --stroke:rgba(255,255,255,.08);
-      --stroke2:rgba(255,255,255,.06);
+      --bg:#07090c;
+      --panel: rgba(255,255,255,.04);
+      --panel2: rgba(255,255,255,.03);
+      --stroke: rgba(255,255,255,.08);
+      --stroke2: rgba(255,255,255,.12);
       --text:#e9eef5;
-      --muted:rgba(233,238,245,.62);
-      --muted2:rgba(233,238,245,.38);
-      --accent:#8aa4ff;
-      --bad:#ff5b6b;
-      --good:#56d19a;
+      --muted: rgba(233,238,245,.62);
+      --shadow: 0 18px 60px rgba(0,0,0,.70);
+      --radius: 18px;
+      --ease: cubic-bezier(.2,.85,.2,1);
+      --danger: #ff5b6b;
+      --ok: #31d27c;
+      --warn: #ffcc66;
 
-      --density:.10;  /* 0..1 */
-      --sidebar:.22;  /* 0..1 */
-      --reduce:0;     /* 0 or 1 */
+      --boxW: 980px;
+      --boxH: 720px;
+      --sidebarW: 320px;
+      --pad: 12px;
+      --font: 13px;
     }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      background:
-        radial-gradient(1100px 700px at 25% 10%, rgba(138,164,255,.10), transparent 55%),
-        radial-gradient(900px 600px at 80% 15%, rgba(86,209,154,.06), transparent 60%),
-        linear-gradient(180deg, var(--bg), var(--bg2));
-      color:var(--text);
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
       overflow:hidden;
+      font-size: var(--font);
     }
 
-    /* Centered app + footer under it */
-    .page{
+    /* dotted dark background */
+    .bgDots{
+      position:fixed; inset:0;
+      background:
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,.06) 1px, transparent 1.2px);
+      background-size: 18px 18px;
+      opacity:.18;
+      pointer-events:none;
+    }
+    .vignette{
+      position:fixed; inset:0;
+      background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.60) 100%);
+      pointer-events:none;
+    }
+
+    /* Center stage */
+    .stage{
       height:100%;
       display:flex;
       align-items:center;
       justify-content:center;
-      padding:22px;
-      flex-direction:column;
-      gap:10px;
-    }
-    .app{
-      width:min(1120px, 94vw);
-      height:min(700px, 84vh);
-      border-radius:26px;
-      border:1px solid var(--stroke);
-      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
-      box-shadow: 0 24px 70px rgba(0,0,0,.65);
-      overflow:hidden;
+      padding:20px;
       position:relative;
-      backdrop-filter: blur(10px);
     }
 
-    .footer{
-      width:min(1120px, 94vw);
+    /* Main box (compact) */
+    .shell{
+      width: min(var(--boxW), 96vw);
+      height: min(var(--boxH), 86vh);
       display:flex;
-      justify-content:center;
-      gap:10px;
-      color:var(--muted2);
-      font-size:12px;
-      font-weight:800;
-      user-select:none;
+      gap:12px;
+      padding:12px;
+      border-radius: var(--radius);
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.02);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      position:relative;
+      overflow:hidden;
+      transform: translateY(6px);
+      opacity:0;
+      animation: popIn .38s var(--ease) forwards;
     }
-    .footer a{ color:var(--muted); text-decoration:none; }
-    .footer a:hover{ color:var(--text); text-decoration:underline; }
+    @keyframes popIn{to{transform: translateY(0); opacity:1}}
 
-    /* Top bar */
-    .topbar{
-      height:62px;
+    /* Footer under shell */
+    .footer{
+      position:absolute;
+      left:50%;
+      transform: translateX(-50%);
+      bottom:12px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      color: rgba(233,238,245,.55);
+      font-size:12px;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .footer a{
+      color: rgba(233,238,245,.70);
+      text-decoration:none;
+      border-bottom:1px solid rgba(233,238,245,.18);
+    }
+    .footer a:hover{border-bottom-color: rgba(233,238,245,.45)}
+
+    /* Sidebar */
+    .sidebar{
+      width: min(var(--sidebarW), 42%);
+      min-width: 290px;
+      background: var(--panel);
+      border:1px solid var(--stroke);
+      border-radius: var(--radius);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+
+    /* Main chat */
+    .main{
+      flex:1;
+      min-width:0;
+      background: var(--panel);
+      border:1px solid var(--stroke);
+      border-radius: var(--radius);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+
+    /* Sidebar top */
+    .sideTop{
+      padding: var(--pad);
+      border-bottom:1px solid var(--stroke);
       display:flex;
       align-items:center;
       justify-content:space-between;
-      padding:0 16px;
-      border-bottom:1px solid var(--stroke2);
-      background: rgba(10,12,16,.55);
+      gap:10px;
     }
-    .brand h1{
-      margin:0;
-      font-size:16px;
-      letter-spacing:.2px;
+
+    .brand{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      min-width:0;
+    }
+    .brandTitle{
       font-weight:900;
-      line-height:1;
-    }
-    .brand small{
-      display:block;
-      margin-top:3px;
-      font-size:12px;
-      color:var(--muted);
-      font-weight:700;
-    }
-
-    .rightTop{
-      display:flex;
-      align-items:center;
-      gap:10px;
-    }
-    .iconBtn{
-      width:38px;height:38px;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.03);
-      display:grid;place-items:center;
-      cursor:pointer;
-      transition: transform .12s ease, background .12s ease;
-      position:relative;
-    }
-    .iconBtn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.05); }
-
-    .badge{
-      position:absolute;
-      top:-7px; right:-7px;
-      min-width:18px;height:18px;
-      padding:0 6px;
-      border-radius:999px;
-      background: var(--bad);
-      border:1px solid rgba(0,0,0,.35);
-      display:grid;place-items:center;
-      font-size:11px;
-      font-weight:950;
-      color:#0b0d12;
-    }
-    .badge.hidden{ display:none; }
-
-    .mePill{
-      height:38px;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.03);
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:0 12px;
-      cursor:pointer;
-      user-select:none;
-    }
-    .mePill .name{
-      font-weight:950;
-      letter-spacing:.2px;
+      letter-spacing:-0.04em;
+      font-size:16px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      max-width:220px;
+    }
+    .brandSub{
+      font-size:11px;
+      color: var(--muted);
+      font-weight:800;
     }
 
-    /* Layout */
-    .grid{
-      height: calc(100% - 62px);
-      display:grid;
-      grid-template-columns: clamp(260px, calc(280px + var(--sidebar) * 240px), 380px) 1fr;
+    /* Inbox button */
+    .inboxBtn{
+      appearance:none;
+      border:none;
+      background: rgba(255,255,255,.04);
+      border:1px solid var(--stroke2);
+      border-radius: 14px;
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+      transition: transform .12s var(--ease), border-color .12s var(--ease), background .12s var(--ease);
+      user-select:none;
     }
+    .inboxBtn:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.06)}
+    .bell{
+      width:14px;height:14px; display:block;
+      opacity:.92;
+    }
+    .ping{
+      min-width:18px; height:18px;
+      padding:0 6px;
+      border-radius:999px;
+      background: rgba(255,59,78,.15);
+      border: 1px solid rgba(255,59,78,.35);
+      color: rgba(255,220,225,.95);
+      font-weight:900;
+      font-size:11px;
+      display:none;
+      align-items:center;
+      justify-content:center;
+    }
+    .ping.show{display:flex}
 
-    .left{
-      border-right:1px solid var(--stroke2);
-      padding:14px;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-      overflow:hidden;
-    }
-    .panel{
-      border:1px solid var(--stroke);
-      background: rgba(0,0,0,.14);
-      border-radius:18px;
-      padding:10px;
-      overflow:hidden;
-    }
-    .title{
-      font-size:12px;
-      font-weight:950;
-      color:var(--muted);
-      letter-spacing:.18em;
-      text-transform:uppercase;
-      margin:6px 2px 6px;
-    }
-    .list{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
+    /* Lists */
+    .sideScroll{
+      padding: var(--pad);
       overflow:auto;
-      max-height: 240px;
-      padding-right:6px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      min-height:0;
     }
-    .list::-webkit-scrollbar{ width:10px; }
-    .list::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.06); border-radius:999px; }
-    .list::-webkit-scrollbar-track{ background: transparent; }
 
-    .item{
+    .listTitle{
+      font-size:11px;
+      color: rgba(233,238,245,.55);
+      font-weight:900;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      margin-top:6px;
+    }
+
+    .row{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
       padding:10px 10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.06);
+      border:1px solid var(--stroke);
+      border-radius: 14px;
       background: rgba(255,255,255,.02);
       cursor:pointer;
-      transition: background .12s ease, transform .12s ease;
+      user-select:none;
+      transition: transform .12s var(--ease), background .12s var(--ease), border-color .12s var(--ease);
+    }
+    .row:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.04)}
+    .rowLeft{
+      display:flex;
+      align-items:center;
+      gap:10px;
       min-width:0;
     }
-    .item:hover{ background: rgba(255,255,255,.04); transform: translateY(-1px); }
-    .leftText{ min-width:0; }
-    .label{
-      font-weight:950;
+    .dot{
+      width:9px;height:9px;border-radius:999px;
+      background: rgba(255,255,255,.20);
+    }
+    .dot.on{background: var(--ok); box-shadow: 0 0 0 4px rgba(49,210,124,.10)}
+    .nameCol{min-width:0; display:flex; flex-direction:column; gap:2px}
+    .rowName{
+      font-weight:900;
+      font-size:12px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width: 200px;
+    }
+    .rowSub{
+      font-weight:800;
+      font-size:11px;
+      color: var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width: 200px;
+    }
+    .miniPing{
+      min-width:18px;height:18px;
+      border-radius:999px;
+      padding:0 6px;
+      background: rgba(255,59,78,.14);
+      border: 1px solid rgba(255,59,78,.32);
+      color: rgba(255,220,225,.95);
+      font-weight:900;
+      font-size:11px;
+      display:none;
+      align-items:center;
+      justify-content:center;
+    }
+    .miniPing.show{display:flex}
+
+    /* Chat header */
+    .chatHeader{
+      padding: var(--pad);
+      border-bottom:1px solid var(--stroke);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      background: rgba(0,0,0,.16);
+    }
+    .chatTitle{
+      font-weight:900;
+      letter-spacing:-0.02em;
       font-size:13px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
+      max-width: 68%;
     }
-    .sub{
-      font-size:12px;
-      color:var(--muted);
+    .chatHint{
       margin-top:2px;
+      font-weight:800;
+      font-size:11px;
+      color: var(--muted);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width: 68%;
+    }
+    .mePill{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:8px 10px;
+      border-radius: 999px;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.03);
+      cursor:pointer;
+      user-select:none;
+      transition: transform .12s var(--ease), border-color .12s var(--ease);
+    }
+    .mePill:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.22)}
+    .meDot{width:9px;height:9px;border-radius:999px;background: var(--ok); box-shadow: 0 0 0 4px rgba(49,210,124,.10)}
+    .meName{
+      font-weight:900;
+      font-size:12px;
+      max-width: 180px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    .meta{
-      color:var(--muted);
-      font-size:12px;
-      font-weight:900;
-      white-space:nowrap;
-    }
 
-    /* Right */
-    .right{
-      padding:14px;
+    /* Dropdown */
+    .dropdown{
+      position:absolute;
+      top:56px;
+      right:16px;
+      width:220px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(12,14,18,.95);
+      box-shadow: 0 20px 60px rgba(0,0,0,.65);
+      overflow:hidden;
+      z-index:85;
+      display:none;
+    }
+    .dropdown.show{ display:block; }
+    .ddItem{
+      padding:12px 12px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      cursor:pointer;
+      user-select:none;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .ddItem:last-child{ border-bottom:none; }
+    .ddItem:hover{ background: rgba(255,255,255,.05); }
+    .ddItem b{ font-size:12px; font-weight:950; }
+    .ddItem span{ font-size:12px; font-weight:900; color: rgba(233,238,245,.60); margin-left:auto; }
+    .ddDanger b{ color: rgba(255,91,107,.95); }
+
+    /* Chat box */
+    .chatBox{
+      flex:1;
+      min-height:0;
+      overflow:auto;
+      padding: var(--pad);
       display:flex;
       flex-direction:column;
       gap:10px;
-      overflow:hidden;
     }
-    .chatHeader{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      padding:12px;
-      border-radius:18px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.02);
-      min-height:58px;
-    }
-    .chatTitle{ font-weight:950; font-size:14px; margin:0; letter-spacing:.2px; }
-    .chatSub{ color:var(--muted); font-size:12px; font-weight:700; margin-top:2px; }
-    .cooldown{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      color:rgba(233,238,245,.55);
-      font-weight:950;
-      font-size:12px;
-      user-select:none;
-      padding:8px 10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.07);
-      background: rgba(0,0,0,.16);
-      white-space:nowrap;
-    }
-    .cooldown.red{
-      color: rgba(255,91,107,.95);
-      border-color: rgba(255,91,107,.35);
-    }
-    .shake{ animation: shake .25s ease; }
-    @keyframes shake{
-      0%{ transform: translateX(0); }
-      25%{ transform: translateX(-6px); }
-      50%{ transform: translateX(6px); }
-      75%{ transform: translateX(-4px); }
-      100%{ transform: translateX(0); }
-    }
-
-    .chatBody{
-      flex:1;
-      border:1px solid var(--stroke);
-      border-radius:18px;
-      background: rgba(0,0,0,.16);
-      overflow:auto;
-      padding:12px;
-    }
-    .chatBody::-webkit-scrollbar{ width:10px; }
-    .chatBody::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.06); border-radius:999px; }
-    .chatBody::-webkit-scrollbar-track{ background: transparent; }
 
     .msg{
-      display:flex;
-      gap:10px;
-      padding:8px 10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.05);
-      background: rgba(255,255,255,.02);
-      margin-bottom:8px;
-      align-items:flex-start;
-    }
-    .msg .u{
-      font-weight:950;
-      font-size:13px;
-      white-space:nowrap;
-      cursor:pointer;
-      max-width:180px;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .msg .t{
-      font-size:13px;
-      line-height:1.35;
-      word-break:break-word;
-      flex:1;
-      min-width:0;
-    }
-    .msg .time{
-      color:var(--muted2);
-      font-size:11px;
-      font-weight:900;
-      margin-left:auto;
-      white-space:nowrap;
-    }
-    .msg.blocked{
-      filter: blur(4px);
-      opacity:.55;
-    }
-    .msg.blocked.show{
-      filter:none;
-      opacity:1;
-    }
-    .msg .unblur{
-      margin-left:10px;
-      font-size:11px;
-      font-weight:950;
-      color:rgba(233,238,245,.65);
-      cursor:pointer;
-      user-select:none;
-      white-space:nowrap;
-    }
-    .msg .unblur:hover{ color:var(--text); text-decoration:underline; }
-
-    .composer{
-      display:flex;
-      gap:10px;
-      align-items:center;
-      border:1px solid var(--stroke);
-      border-radius:18px;
-      background: rgba(255,255,255,.02);
-      padding:10px;
-    }
-    .field{
-      width:100%;
-      height:38px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.08);
-      background: rgba(0,0,0,.18);
-      color:var(--text);
-      padding:0 12px;
-      outline:none;
-      font-weight:800;
-    }
-    .btn{
-      height:38px;
-      padding:0 14px;
-      border-radius:14px;
+      padding:10px 12px;
+      border-radius: 14px;
       border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      color:var(--text);
-      font-weight:950;
-      cursor:pointer;
-      transition: transform .12s ease, background .12s ease;
-      white-space:nowrap;
+      background: rgba(255,255,255,.03);
+      transition: transform .12s var(--ease), border-color .12s var(--ease), background .12s var(--ease);
     }
-    .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
-    .btn.danger{ border-color: rgba(255,91,107,.28); background: rgba(255,91,107,.10); }
-
-    /* Overlays */
-    .overlay{
-      position:absolute;
-      inset:0;
-      z-index:60;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      background: rgba(0,0,0,.50);
-      backdrop-filter: blur(10px);
-    }
-    .overlay.show{ display:flex; }
-
-    /* Login screen: dotted dark */
-    .loginScreen{
-      width:100%;
-      height:100%;
-      position:absolute;
-      inset:0;
-      z-index:80;
+    .msg:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.04)}
+    .meta{
       display:flex;
-      align-items:center;
-      justify-content:center;
-      background:
-        radial-gradient(circle at 1px 1px, rgba(233,238,245,.10) 1px, transparent 1px) 0 0 / 20px 20px,
-        linear-gradient(180deg, #070911, #05070b);
-    }
-    .loginCard{
-      width:min(420px, 92vw);
-      border-radius:26px;
-      border:1px solid var(--stroke);
-      background: rgba(12,14,18,.85);
-      box-shadow: 0 30px 90px rgba(0,0,0,.75);
-      padding:18px;
-      transition: transform .18s ease, box-shadow .18s ease;
-    }
-    .loginCard:hover{
-      transform: translateY(-2px);
-      box-shadow: 0 36px 95px rgba(0,0,0,.80);
-    }
-    .loginTitle{ margin:0; font-weight:950; font-size:16px; letter-spacing:.2px; }
-    .loginSub{ color:var(--muted); margin:6px 0 14px; font-weight:800; font-size:12px; }
-    .row{ display:flex; gap:10px; }
-    .pwWrap{ position:relative; flex:1; }
-    .eyeBtn{
-      position:absolute; top:7px; right:7px;
-      width:34px; height:24px;
-      border-radius:10px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      display:grid; place-items:center;
-      cursor:pointer;
-    }
-
-    /* Loading */
-    .loading{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      align-items:center;
-      justify-content:center;
-      color:rgba(233,238,245,.85);
-      font-weight:950;
-      letter-spacing:.2px;
-      user-select:none;
-    }
-    .spinner{
-      width:38px;height:38px;
-      border-radius:999px;
-      border:3px solid rgba(233,238,245,.15);
-      border-top-color: rgba(233,238,245,.85);
-      animation: spin .8s linear infinite;
-    }
-    @keyframes spin{ to{ transform: rotate(360deg); } }
-
-    /* Modal */
-    .modalOverlay{
-      position:absolute;
-      inset:0;
-      background: rgba(0,0,0,.55);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index:90;
-      padding:18px;
-    }
-    .modalOverlay.open{ display:flex; }
-    .modal{
-      width:min(560px, 94vw);
-      border-radius:22px;
-      border:1px solid var(--stroke);
-      background: rgba(12,14,18,.93);
-      box-shadow: 0 30px 95px rgba(0,0,0,.75);
-      overflow:hidden;
-      animation: pop .14s ease-out;
-    }
-    @keyframes pop{
-      from{ transform: translateY(10px) scale(.985); opacity:0; }
-      to{ transform: translateY(0) scale(1); opacity:1; }
-    }
-    .modalHead{
-      padding:14px;
-      border-bottom:1px solid var(--stroke2);
-      display:flex;
-      align-items:center;
+      align-items:baseline;
       justify-content:space-between;
-      gap:12px;
-    }
-    .modalHead h2{ margin:0; font-size:14px; font-weight:950; letter-spacing:.2px; }
-    .closeBtn{
-      width:36px;height:36px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.04);
-      display:grid; place-items:center;
-      cursor:pointer;
-    }
-    .modalBody{ padding:14px; }
-    .modalFooter{
-      padding:12px 14px;
-      border-top:1px solid var(--stroke2);
-      display:flex;
-      justify-content:flex-end;
       gap:10px;
       flex-wrap:wrap;
     }
+    .u{
+      font-weight:950;
+      font-size:12px;
+      cursor:pointer;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .t{
+      font-weight:900;
+      font-size:11px;
+      color: var(--muted);
+      white-space:nowrap;
+    }
+    .body{
+      margin-top:4px;
+      font-size:13px;
+      font-weight:800;
+      line-height:1.35;
+      white-space:pre-wrap;
+      word-wrap:break-word;
+      color: rgba(233,238,245,.92);
+    }
+    .hiddenTag{
+      display:inline-flex;
+      gap:8px;
+      align-items:center;
+      margin-top:8px;
+      font-weight:900;
+      font-size:11px;
+      color: rgba(233,238,245,.60);
+    }
+    .revealBtn{
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.04);
+      color: rgba(233,238,245,.85);
+      padding:6px 10px;
+      border-radius: 999px;
+      font-weight:950;
+      font-size:11px;
+      cursor:pointer;
+      transition: transform .12s var(--ease), border-color .12s var(--ease);
+    }
+    .revealBtn:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.22)}
 
-    /* Toast */
-    .toasts{
+    /* Composer */
+    .composer{
+      border-top:1px solid var(--stroke);
+      padding: var(--pad);
+      background: rgba(0,0,0,.18);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .cooldown{
+      display:none;
+      align-items:center;
+      gap:10px;
+      height:14px;
+      font-size:11px;
+      font-weight:900;
+      color: rgba(233,238,245,.60);
+      user-select:none;
+    }
+    .cooldown.show{display:flex}
+    .cdBar{
+      flex:1;
+      height:6px;
+      border-radius:999px;
+      background: rgba(255,255,255,.08);
+      border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
+    }
+    .cdFill{height:100%; width:0%; background: rgba(255,255,255,.18); transition: width .08s linear;}
+    .cooldown.warn{color: rgba(255,91,107,.95)}
+    .cooldown.warn .cdFill{background: rgba(255,91,107,.35)}
+    .shake{animation: shake .36s var(--ease)}
+    @keyframes shake{
+      0%,100%{transform:translateX(0)}
+      20%{transform:translateX(-5px)}
+      40%{transform:translateX(5px)}
+      60%{transform:translateX(-4px)}
+      80%{transform:translateX(4px)}
+    }
+
+    .inputRow{
+      display:flex;
+      gap:10px;
+      align-items:flex-end;
+      min-width:0;
+    }
+
+    textarea{
+      flex:1;
+      min-width:0;
+      resize:none;
+      border-radius: 14px;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.02);
+      color: var(--text);
+      padding:10px 12px;
+      font-family:inherit;
+      font-size:13px;
+      font-weight:800;
+      outline:none;
+      min-height:42px;
+      max-height:120px;
+      overflow:auto;
+    }
+
+    .btn{
+      appearance:none;
+      border:none;
+      border-radius: 14px;
+      padding:10px 12px;
+      background: rgba(255,255,255,.05);
+      border:1px solid var(--stroke2);
+      color: rgba(233,238,245,.92);
+      font-weight:950;
+      font-size:12px;
+      cursor:pointer;
+      user-select:none;
+      transition: transform .12s var(--ease), border-color .12s var(--ease), background .12s var(--ease);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .btn:hover{transform: translateY(-1px); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.07)}
+    .btn.primary{background: rgba(255,255,255,.10)}
+    .btn.danger{border-color: rgba(255,91,107,.35); background: rgba(255,91,107,.07)}
+
+    /* Login overlay */
+    .overlay{
+      position:fixed; inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:60;
+    }
+    .overlay.hidden{display:none}
+
+    .loginCard{
+      width: min(520px, 92vw);
+      border-radius: 18px;
+      border:1px solid var(--stroke);
+      background: rgba(12,14,18,.82);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      transform: translateY(8px);
+      opacity:0;
+      animation: popIn .42s var(--ease) forwards;
+      position:relative;
+    }
+    .loginCard:hover{
+      transform: translateY(-1px);
+      transition: transform .16s var(--ease);
+    }
+
+    .loginTop{
+      padding:16px;
+      border-bottom:1px solid var(--stroke);
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .bigTitle{
+      margin:0;
+      font-weight:950;
+      letter-spacing:-0.05em;
+      font-size:28px;
+      line-height:1;
+    }
+    .mini{
+      margin-top:8px;
+      color: var(--muted);
+      font-weight:900;
+      font-size:12px;
+    }
+
+    .loginBody{
+      padding:14px 16px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .fieldWrap{position:relative}
+    .field{
+      width:100%;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.02);
+      color: var(--text);
+      border-radius: 14px;
+      padding:11px 12px;
+      font-family:inherit;
+      font-size:13px;
+      font-weight:800;
+      outline:none;
+    }
+
+    .eyeBtn{
       position:absolute;
+      right:10px;
+      top:50%;
+      transform: translateY(-50%);
+      width:36px; height:36px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      transition: transform .12s var(--ease), border-color .12s var(--ease);
+      user-select:none;
+      font-weight:950;
+    }
+    .eyeBtn:hover{transform: translateY(-50%) scale(1.03); border-color: rgba(255,255,255,.22)}
+    .loginActions{display:flex; gap:10px}
+
+    /* Loading */
+    .loading{
+      position:fixed; inset:0;
+      z-index:70;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,.62);
+      backdrop-filter: blur(10px);
+      padding:18px;
+    }
+    .loading.show{display:flex}
+    .loader{
+      width: min(520px, 92vw);
+      border-radius: 18px;
+      border:1px solid var(--stroke);
+      background: rgba(12,14,18,.86);
+      box-shadow: var(--shadow);
+      padding:16px;
+      overflow:hidden;
+      opacity:0;
+      transform: translateY(8px);
+      animation: popIn .32s var(--ease) forwards;
+    }
+    .prog{
+      margin-top:12px;
+      height:10px;
+      border-radius:999px;
+      background: rgba(255,255,255,.07);
+      border:1px solid rgba(255,255,255,.08);
+      overflow:hidden;
+    }
+    .prog > div{
+      height:100%;
+      width:14%;
+      background: rgba(255,255,255,.18);
+      animation: loadMove 1.15s ease-in-out infinite;
+    }
+    @keyframes loadMove{
+      0%{transform: translateX(-60%)}
+      50%{transform: translateX(240%)}
+      100%{transform: translateX(520%)}
+    }
+
+    /* Modal (single close button) */
+    .modalBack{
+      position:fixed; inset:0;
+      z-index:90;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(10px);
+    }
+    .modalBack.show{display:flex}
+    .modal{
+      width: min(520px, 92vw);
+      max-height: min(540px, 76vh);
+      border-radius: 18px;
+      border:1px solid var(--stroke);
+      background: rgba(12,14,18,.92);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      transform: translateY(8px);
+      opacity:0;
+      animation: popIn .28s var(--ease) forwards;
+    }
+    .modalTop{
+      padding:12px 14px;
+      border-bottom:1px solid var(--stroke);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .modalTitle{
+      font-weight:950;
+      letter-spacing:-0.03em;
+    }
+    .modalBody{
+      padding:14px;
+      overflow:auto;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .modalFoot{
+      padding:12px 14px;
+      border-top:1px solid var(--stroke);
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      background: rgba(0,0,0,.12);
+    }
+
+    /* Toasts */
+    .toasts{
+      position:fixed;
       right:14px;
       bottom:14px;
       z-index:95;
@@ -513,180 +720,222 @@
       pointer-events:none;
     }
     .toast{
-      width:min(320px, 80vw);
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(12,14,18,.93);
+      width: min(360px, calc(100vw - 24px));
+      border:1px solid var(--stroke);
+      background: rgba(12,14,18,.92);
+      border-radius: 16px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.55);
       padding:10px 12px;
-      box-shadow: 0 18px 55px rgba(0,0,0,.60);
-      animation: toastIn .14s ease-out;
-    }
-    @keyframes toastIn{ from{ transform: translateY(8px); opacity:0; } to{ transform: translateY(0); opacity:1; } }
-    .toast b{ display:block; font-size:12px; letter-spacing:.2px; }
-    .toast span{ color:var(--muted); font-size:12px; font-weight:800; }
-
-    /* Cursor */
-    body.cursorOn, body.cursorOn *{ cursor:none !important; }
-    .cursorDot,.cursorTrail{
-      position:fixed;
-      left:0; top:0;
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      transform: translateY(10px);
+      opacity:0;
+      animation: toastIn .24s var(--ease) forwards;
       pointer-events:none;
-      z-index:9999;
-      transform: translate(-50%,-50%);
-      display:none;
+    }
+    @keyframes toastIn{to{transform: translateY(0); opacity:1}}
+    .toastDot{width:10px;height:10px;border-radius:50%;background:#fff;margin-top:5px;opacity:.9}
+    .toastTitle{font-weight:950; font-size:12px}
+    .toastMsg{font-weight:850; font-size:12px; color: var(--muted); margin-top:2px; line-height:1.35}
+
+    /* Custom cursor */
+    body.cursorOn, body.cursorOn * { cursor: none !important; }
+    .cursor{
+      position:fixed;
+      top:0; left:0;
+      width:14px; height:14px;
+      border-radius:999px;
+      border:1px solid rgba(233,238,245,.55);
+      background: rgba(233,238,245,.06);
+      pointer-events:none;
+      z-index:999;
+      transform: translate(-50%, -50%);
+      opacity:0;
     }
     .cursorDot{
-      width:10px;height:10px;border-radius:999px;
-      background: rgba(233,238,245,.92);
-      box-shadow: 0 0 0 6px rgba(138,164,255,.12);
+      position:fixed;
+      top:0; left:0;
+      width:5px; height:5px;
+      border-radius:999px;
+      background: rgba(233,238,245,.85);
+      pointer-events:none;
+      z-index:999;
+      transform: translate(-50%, -50%);
+      opacity:0;
     }
-    .cursorTrail{
-      width:22px;height:22px;border-radius:999px;
-      border:1px solid rgba(233,238,245,.40);
-      background: rgba(138,164,255,.10);
+    .trailDot{
+      position:fixed;
+      width:6px; height:6px;
+      border-radius:999px;
+      background: rgba(233,238,245,.12);
+      pointer-events:none;
+      z-index:998;
+      transform: translate(-50%, -50%);
     }
 
-    /* Animation reduction */
-    .reduce *{
-      animation-duration: .001ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: .001ms !important;
-      scroll-behavior:auto !important;
+    /* Reduce motion */
+    body.reduceMotion *{
+      animation:none !important;
+      transition:none !important;
+    }
+
+    @media (max-width: 980px){
+      .shell{
+        height: min(760px, 88vh);
+        flex-direction:column;
+      }
+      .sidebar{
+        width:100%;
+        min-width:0;
+      }
+      .footer{
+        bottom:10px;
+      }
     }
   </style>
 </head>
+
 <body>
-  <div class="cursorDot" id="cursorDot" aria-hidden="true"></div>
-  <div class="cursorTrail" id="cursorTrail" aria-hidden="true"></div>
+  <div class="bgDots"></div>
+  <div class="vignette"></div>
 
-  <div class="page">
-    <div class="app" id="app">
+  <div class="cursor" id="cursor"></div>
+  <div class="cursorDot" id="cursorDot"></div>
 
-      <div class="topbar">
-        <div class="brand">
-          <h1>tonkotsu.online</h1>
-          <small>chat</small>
-        </div>
+  <div class="stage">
 
-        <div class="rightTop">
-          <button class="iconBtn" id="inboxBtn" title="Inbox">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 22a2.2 2.2 0 0 0 2.1-1.6" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M6 9a6 6 0 1 1 12 0c0 7 3 7 3 7H3s3 0 3-7" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <div class="badge hidden" id="inboxBadge">0</div>
-          </button>
-
-          <div class="mePill" id="mePill" title="Account">
-            <div class="name" id="meName">Guest0000</div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M6 9l6 6 6-6" stroke="rgba(233,238,245,.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid">
-        <div class="left">
-          <div class="panel">
-            <div class="title">Messages</div>
-            <div class="list" id="messagesList"></div>
-          </div>
-
-          <div class="panel">
-            <div class="title">Online users</div>
-            <div class="list" id="onlineList"></div>
-          </div>
-        </div>
-
-        <div class="right">
-          <div class="chatHeader">
-            <div>
-              <div class="chatTitle" id="chatTitle">Global</div>
-              <div class="chatSub" id="chatSub">Public chat</div>
-            </div>
-            <div class="cooldown" id="cooldownBox" style="display:none;">
-              <span id="cooldownText">Cooldown</span>
-            </div>
-          </div>
-
-          <div class="chatBody" id="chatBody"></div>
-
-          <div class="composer" id="composer">
-            <input class="field" id="msgInput" placeholder="Type a message..." autocomplete="off" />
-            <button class="btn" id="sendBtn">Send</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Login screen -->
-      <div class="loginScreen" id="loginScreen">
-        <div class="loginCard" id="loginCard">
-          <h2 class="loginTitle">Welcome</h2>
-          <div class="loginSub">Login / register, or continue as guest.</div>
-
-          <input class="field" id="userInput" placeholder="Username" autocomplete="username" />
-          <div style="height:10px"></div>
-
-          <div class="row">
-            <div class="pwWrap">
-              <input class="field" id="passInput" type="password" placeholder="Password" autocomplete="current-password" />
-              <button class="eyeBtn" id="eyeBtn" aria-label="Show/Hide password" title="Show/Hide password">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="rgba(233,238,245,.85)" stroke-width="2" stroke-linejoin="round"/>
-                  <circle cx="12" cy="12" r="3" stroke="rgba(233,238,245,.85)" stroke-width="2"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div style="height:12px"></div>
-
-          <div class="row">
-            <button class="btn" id="loginBtn" style="flex:1;">Login / Register</button>
-            <button class="btn" id="guestBtn" style="flex:1;">Continue as Guest</button>
-          </div>
-
-          <div style="height:10px"></div>
-          <div style="color:rgba(233,238,245,.55);font-weight:850;font-size:12px" id="loginHint"></div>
-        </div>
-      </div>
-
-      <!-- Loading overlay -->
-      <div class="overlay" id="loadingOverlay">
-        <div class="loading">
-          <div class="spinner"></div>
-          <div>Loading…</div>
-        </div>
-      </div>
-
-      <!-- Modal -->
-      <div class="modalOverlay" id="modalOverlay">
-        <div class="modal">
-          <div class="modalHead">
-            <h2 id="modalTitle">Modal</h2>
-            <button class="closeBtn" id="modalClose" aria-label="Close">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18" stroke="rgba(233,238,245,.85)" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </button>
-          </div>
-          <div class="modalBody" id="modalBody"></div>
-          <div class="modalFooter" id="modalFooter"></div>
-        </div>
-      </div>
-
-      <div class="toasts" id="toasts"></div>
-    </div>
-
+    <!-- Footer under the box -->
     <div class="footer">
-      <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noopener">Support on Ko-fi</a>
+      <span>© <span id="year"></span> tonkotsu.online. All rights reserved.</span>
       <span>•</span>
-      <span>© 2026 tonkotsu — All rights reserved.</span>
+      <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">Support on Ko-fi</a>
     </div>
+
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="overlay">
+      <div class="loginCard" id="loginCard">
+        <div class="loginTop">
+          <div style="min-width:0">
+            <h1 class="bigTitle">tonkotsu.online</h1>
+            <div class="mini">global chat + dms + groups</div>
+          </div>
+          <div style="color:rgba(233,238,245,.55);font-weight:950;font-size:12px">beta</div>
+        </div>
+
+        <div class="loginBody">
+          <div style="color:rgba(233,238,245,.60);font-weight:900;font-size:12px;line-height:1.45">
+            Use <b>username + password</b> to save your account.<br>
+            Or leave blank and join as <b>Guest</b> (limited).
+          </div>
+
+          <div class="grid2">
+            <input id="username" class="field" placeholder="Username" autocomplete="username" />
+            <div class="fieldWrap">
+              <input id="password" class="field" placeholder="Password" type="password" autocomplete="current-password" style="padding-right:52px" />
+              <button class="eyeBtn" id="togglePass" type="button" title="Show/Hide">◉</button>
+            </div>
+          </div>
+
+          <div class="loginActions">
+            <button class="btn primary" id="joinBtn">Join</button>
+            <button class="btn" id="guestBtn">Join as Guest</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="loading">
+      <div class="loader">
+        <div style="font-weight:950;letter-spacing:-0.03em">Entering tonkotsu.online</div>
+        <div style="font-size:12px;color:rgba(233,238,245,.60);font-weight:900;margin-top:6px" id="loaderSub">syncing…</div>
+        <div class="prog"><div></div></div>
+      </div>
+    </div>
+
+    <!-- App -->
+    <div id="appShell" class="shell" style="display:none">
+
+      <aside class="sidebar">
+        <div class="sideTop">
+          <div class="brand">
+            <div class="brandTitle" id="brandTitle">tonkotsu.online</div>
+            <div class="brandSub" id="brandSub">compact chat</div>
+          </div>
+
+          <button class="inboxBtn" id="inboxBtn" title="Inbox">
+            <svg class="bell" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22Z" stroke="rgba(233,238,245,.8)" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M18 16.6V11a6 6 0 1 0-12 0v5.6L4.8 18h14.4L18 16.6Z" stroke="rgba(233,238,245,.8)" stroke-width="1.8" stroke-linejoin="round"/>
+            </svg>
+            <div class="ping" id="inboxPing">0</div>
+          </button>
+        </div>
+
+        <div class="sideScroll" id="sideScroll">
+          <div class="listTitle">Messages</div>
+          <div id="messagesList"></div>
+
+          <div class="listTitle" style="margin-top:10px">Online users</div>
+          <div id="onlineList"></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="chatHeader">
+          <div style="min-width:0">
+            <div class="chatTitle" id="chatTitle">Global chat</div>
+            <div class="chatHint" id="chatHint">shared with everyone online</div>
+          </div>
+
+          <div class="mePill" id="mePill">
+            <div class="meDot"></div>
+            <div class="meName" id="meName">—</div>
+          </div>
+
+          <div class="dropdown" id="userDropdown">
+            <div class="ddItem" id="ddProfile"><b>Profile</b><span>↗</span></div>
+            <div class="ddItem" id="ddSettings"><b>Settings</b><span>⚙</span></div>
+            <div class="ddItem ddDanger" id="ddLogout"><b>Log out</b><span>⎋</span></div>
+          </div>
+        </div>
+
+        <div class="chatBox" id="chatBox"></div>
+
+        <div class="composer">
+          <div class="cooldown" id="cooldownRow">
+            <div style="width:56px" id="cooldownText">0.0s</div>
+            <div class="cdBar"><div class="cdFill" id="cdFill"></div></div>
+          </div>
+
+          <div class="inputRow">
+            <textarea id="message" rows="1" placeholder="Type a message…"></textarea>
+            <button class="btn primary" id="sendBtn">Send</button>
+          </div>
+        </div>
+      </main>
+
+    </div>
+
+    <!-- Modal -->
+    <div class="modalBack" id="modalBack">
+      <div class="modal">
+        <div class="modalTop">
+          <div class="modalTitle" id="modalTitle">Popup</div>
+          <button class="btn" id="modalClose" style="padding:8px 10px;border-radius:12px">Close</button>
+        </div>
+        <div class="modalBody" id="modalBody"></div>
+        <div class="modalFoot" id="modalFoot" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- Toasts -->
+    <div class="toasts" id="toasts"></div>
+
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="./script.js"></script>
+  <script src="/script.js"></script>
 </body>
 </html>
