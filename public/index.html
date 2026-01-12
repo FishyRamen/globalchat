@@ -4,61 +4,74 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>tonkotsu.online</title>
-
   <style>
     :root{
       --bg:#0b0d12;
-      --bg2:#0a0c10;
-      --card:#0f131a;
-      --card2:#0d1117;
+      --bg2:#07090d;
+      --card:rgba(14,16,22,.86);
       --stroke:rgba(255,255,255,.08);
       --stroke2:rgba(255,255,255,.06);
       --text:#e9eef5;
       --muted:rgba(233,238,245,.62);
       --muted2:rgba(233,238,245,.38);
-      --accent:#8aa4ff; /* subtle */
-      --good:#56d19a;
+      --accent:#8aa4ff;
       --bad:#ff5b6b;
-      --shadow: 0 20px 60px rgba(0,0,0,.55);
-      --radius:18px;
+      --good:#56d19a;
 
-      --density: .10; /* 0..1; smaller = tighter */
-      --sidebar: .22; /* 0..1 */
+      --density:.10;  /* 0..1 */
+      --sidebar:.22;  /* 0..1 */
+      --reduce:0;     /* 0 or 1 */
     }
 
     *{ box-sizing:border-box; }
     html,body{ height:100%; }
     body{
       margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      background: radial-gradient(1200px 800px at 20% 10%, rgba(138,164,255,.10), transparent 55%),
-                  radial-gradient(900px 600px at 80% 20%, rgba(86,209,154,.06), transparent 60%),
-                  linear-gradient(180deg, var(--bg), var(--bg2));
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      background:
+        radial-gradient(1100px 700px at 25% 10%, rgba(138,164,255,.10), transparent 55%),
+        radial-gradient(900px 600px at 80% 15%, rgba(86,209,154,.06), transparent 60%),
+        linear-gradient(180deg, var(--bg), var(--bg2));
       color:var(--text);
       overflow:hidden;
     }
 
-    /* Make it compact like login card */
-    .wrap{
+    /* Centered app + footer under it */
+    .page{
       height:100%;
       display:flex;
       align-items:center;
       justify-content:center;
-      padding:24px;
+      padding:22px;
+      flex-direction:column;
+      gap:10px;
     }
-
     .app{
-      width:min(1080px, 92vw);
-      height:min(680px, 84vh);
+      width:min(1120px, 94vw);
+      height:min(700px, 84vh);
       border-radius:26px;
       border:1px solid var(--stroke);
       background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
-      box-shadow: var(--shadow);
+      box-shadow: 0 24px 70px rgba(0,0,0,.65);
       overflow:hidden;
       position:relative;
       backdrop-filter: blur(10px);
     }
 
+    .footer{
+      width:min(1120px, 94vw);
+      display:flex;
+      justify-content:center;
+      gap:10px;
+      color:var(--muted2);
+      font-size:12px;
+      font-weight:800;
+      user-select:none;
+    }
+    .footer a{ color:var(--muted); text-decoration:none; }
+    .footer a:hover{ color:var(--text); text-decoration:underline; }
+
+    /* Top bar */
     .topbar{
       height:62px;
       display:flex;
@@ -68,82 +81,79 @@
       border-bottom:1px solid var(--stroke2);
       background: rgba(10,12,16,.55);
     }
-
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      user-select:none;
-    }
     .brand h1{
       margin:0;
       font-size:16px;
       letter-spacing:.2px;
-      font-weight:800;
+      font-weight:900;
       line-height:1;
     }
     .brand small{
       display:block;
-      margin-top:2px;
+      margin-top:3px;
       font-size:12px;
       color:var(--muted);
-      font-weight:600;
-      letter-spacing:.2px;
+      font-weight:700;
     }
 
-    .topActions{
+    .rightTop{
       display:flex;
       align-items:center;
       gap:10px;
     }
-
-    .pill{
-      height:36px;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:0 12px;
-      border-radius:14px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.03);
-    }
-    .meName{
-      font-weight:800;
-      letter-spacing:.2px;
-    }
-
     .iconBtn{
       width:38px;height:38px;
-      display:grid;place-items:center;
       border-radius:14px;
       border:1px solid var(--stroke);
       background: rgba(255,255,255,.03);
-      color:var(--text);
+      display:grid;place-items:center;
       cursor:pointer;
       transition: transform .12s ease, background .12s ease;
       position:relative;
     }
     .iconBtn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.05); }
+
     .badge{
       position:absolute;
       top:-7px; right:-7px;
-      min-width:18px;
-      height:18px;
+      min-width:18px;height:18px;
       padding:0 6px;
       border-radius:999px;
       background: var(--bad);
       border:1px solid rgba(0,0,0,.35);
       display:grid;place-items:center;
       font-size:11px;
-      font-weight:900;
+      font-weight:950;
       color:#0b0d12;
     }
     .badge.hidden{ display:none; }
 
+    .mePill{
+      height:38px;
+      border-radius:14px;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.03);
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:0 12px;
+      cursor:pointer;
+      user-select:none;
+    }
+    .mePill .name{
+      font-weight:950;
+      letter-spacing:.2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:220px;
+    }
+
+    /* Layout */
     .grid{
       height: calc(100% - 62px);
       display:grid;
-      grid-template-columns: clamp(220px, calc(240px + var(--sidebar) * 220px), 340px) 1fr;
+      grid-template-columns: clamp(260px, calc(280px + var(--sidebar) * 240px), 380px) 1fr;
     }
 
     .left{
@@ -154,55 +164,21 @@
       gap:12px;
       overflow:hidden;
     }
-
-    .sectionTitle{
+    .panel{
+      border:1px solid var(--stroke);
+      background: rgba(0,0,0,.14);
+      border-radius:18px;
+      padding:10px;
+      overflow:hidden;
+    }
+    .title{
       font-size:12px;
-      font-weight:900;
+      font-weight:950;
       color:var(--muted);
       letter-spacing:.18em;
       text-transform:uppercase;
       margin:6px 2px 6px;
     }
-
-    .panel{
-      border:1px solid var(--stroke);
-      background: rgba(0,0,0,.15);
-      border-radius:18px;
-      padding:10px;
-      overflow:hidden;
-    }
-
-    .tabs{
-      display:flex;
-      gap:8px;
-      padding:8px;
-      border:1px solid var(--stroke);
-      background: rgba(255,255,255,.02);
-      border-radius:16px;
-      margin-bottom:10px;
-      position:relative;
-      z-index:5;
-    }
-
-    .tab{
-      flex:1;
-      height:34px;
-      border-radius:12px;
-      border:1px solid transparent;
-      background: transparent;
-      color:var(--muted);
-      font-weight:900;
-      letter-spacing:.2px;
-      cursor:pointer;
-      transition: background .12s ease, color .12s ease, border-color .12s ease;
-      pointer-events:auto;
-    }
-    .tab.active{
-      color:var(--text);
-      background: rgba(255,255,255,.05);
-      border-color: rgba(255,255,255,.08);
-    }
-
     .list{
       display:flex;
       flex-direction:column;
@@ -226,17 +202,18 @@
       background: rgba(255,255,255,.02);
       cursor:pointer;
       transition: background .12s ease, transform .12s ease;
+      min-width:0;
     }
     .item:hover{ background: rgba(255,255,255,.04); transform: translateY(-1px); }
-    .item .label{
-      font-weight:900;
-      letter-spacing:.2px;
+    .leftText{ min-width:0; }
+    .label{
+      font-weight:950;
       font-size:13px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    .item .sub{
+    .sub{
       font-size:12px;
       color:var(--muted);
       margin-top:2px;
@@ -244,15 +221,14 @@
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    .item .meta{
-      display:flex;
-      align-items:center;
-      gap:8px;
+    .meta{
       color:var(--muted);
       font-size:12px;
-      font-weight:800;
+      font-weight:900;
+      white-space:nowrap;
     }
 
+    /* Right */
     .right{
       padding:14px;
       display:flex;
@@ -260,34 +236,50 @@
       gap:10px;
       overflow:hidden;
     }
-
     .chatHeader{
       display:flex;
       align-items:flex-start;
       justify-content:space-between;
-      padding:12px 12px;
+      padding:12px;
       border-radius:18px;
       border:1px solid var(--stroke);
       background: rgba(255,255,255,.02);
+      min-height:58px;
     }
-    .chatTitle{
+    .chatTitle{ font-weight:950; font-size:14px; margin:0; letter-spacing:.2px; }
+    .chatSub{ color:var(--muted); font-size:12px; font-weight:700; margin-top:2px; }
+    .cooldown{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color:rgba(233,238,245,.55);
       font-weight:950;
-      letter-spacing:.2px;
-      font-size:14px;
-      margin:0;
-    }
-    .chatSub{
-      color:var(--muted);
       font-size:12px;
-      margin-top:2px;
-      font-weight:700;
+      user-select:none;
+      padding:8px 10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.07);
+      background: rgba(0,0,0,.16);
+      white-space:nowrap;
+    }
+    .cooldown.red{
+      color: rgba(255,91,107,.95);
+      border-color: rgba(255,91,107,.35);
+    }
+    .shake{ animation: shake .25s ease; }
+    @keyframes shake{
+      0%{ transform: translateX(0); }
+      25%{ transform: translateX(-6px); }
+      50%{ transform: translateX(6px); }
+      75%{ transform: translateX(-4px); }
+      100%{ transform: translateX(0); }
     }
 
     .chatBody{
       flex:1;
       border:1px solid var(--stroke);
       border-radius:18px;
-      background: rgba(0,0,0,.18);
+      background: rgba(0,0,0,.16);
       overflow:auto;
       padding:12px;
     }
@@ -303,28 +295,49 @@
       border:1px solid rgba(255,255,255,.05);
       background: rgba(255,255,255,.02);
       margin-bottom:8px;
+      align-items:flex-start;
     }
     .msg .u{
       font-weight:950;
       font-size:13px;
       white-space:nowrap;
       cursor:pointer;
+      max-width:180px;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     .msg .t{
-      color:var(--text);
       font-size:13px;
       line-height:1.35;
       word-break:break-word;
       flex:1;
+      min-width:0;
     }
     .msg .time{
       color:var(--muted2);
       font-size:11px;
-      font-weight:800;
+      font-weight:900;
       margin-left:auto;
       white-space:nowrap;
     }
-    .msg.hidden .t{ color: rgba(233,238,245,.35); font-style: italic; }
+    .msg.blocked{
+      filter: blur(4px);
+      opacity:.55;
+    }
+    .msg.blocked.show{
+      filter:none;
+      opacity:1;
+    }
+    .msg .unblur{
+      margin-left:10px;
+      font-size:11px;
+      font-weight:950;
+      color:rgba(233,238,245,.65);
+      cursor:pointer;
+      user-select:none;
+      white-space:nowrap;
+    }
+    .msg .unblur:hover{ color:var(--text); text-decoration:underline; }
 
     .composer{
       display:flex;
@@ -344,7 +357,7 @@
       color:var(--text);
       padding:0 12px;
       outline:none;
-      font-weight:700;
+      font-weight:800;
     }
     .btn{
       height:38px;
@@ -359,51 +372,54 @@
       white-space:nowrap;
     }
     .btn:hover{ transform: translateY(-1px); background: rgba(255,255,255,.08); }
+    .btn.danger{ border-color: rgba(255,91,107,.28); background: rgba(255,91,107,.10); }
 
-    /* Login card overlay */
-    .loginOverlay{
+    /* Overlays */
+    .overlay{
       position:absolute;
       inset:0;
+      z-index:60;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,.50);
+      backdrop-filter: blur(10px);
+    }
+    .overlay.show{ display:flex; }
+
+    /* Login screen: dotted dark */
+    .loginScreen{
+      width:100%;
+      height:100%;
+      position:absolute;
+      inset:0;
+      z-index:80;
       display:flex;
       align-items:center;
       justify-content:center;
-      background: rgba(0,0,0,.35);
-      backdrop-filter: blur(10px);
-      z-index:50;
+      background:
+        radial-gradient(circle at 1px 1px, rgba(233,238,245,.10) 1px, transparent 1px) 0 0 / 20px 20px,
+        linear-gradient(180deg, #070911, #05070b);
     }
     .loginCard{
       width:min(420px, 92vw);
       border-radius:26px;
       border:1px solid var(--stroke);
-      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.015));
-      box-shadow: 0 30px 80px rgba(0,0,0,.65);
+      background: rgba(12,14,18,.85);
+      box-shadow: 0 30px 90px rgba(0,0,0,.75);
       padding:18px;
-      position:relative;
-      overflow:hidden;
-      transform: translateY(0);
-      transition: transform .15s ease, box-shadow .15s ease;
+      transition: transform .18s ease, box-shadow .18s ease;
     }
     .loginCard:hover{
       transform: translateY(-2px);
-      box-shadow: 0 36px 90px rgba(0,0,0,.70);
+      box-shadow: 0 36px 95px rgba(0,0,0,.80);
     }
-    .loginTitle{
-      font-weight:950;
-      font-size:16px;
-      letter-spacing:.2px;
-      margin:0;
-    }
-    .loginSub{
-      color:var(--muted);
-      margin:6px 0 14px;
-      font-weight:700;
-      font-size:12px;
-    }
+    .loginTitle{ margin:0; font-weight:950; font-size:16px; letter-spacing:.2px; }
+    .loginSub{ color:var(--muted); margin:6px 0 14px; font-weight:800; font-size:12px; }
     .row{ display:flex; gap:10px; }
     .pwWrap{ position:relative; flex:1; }
     .eyeBtn{
-      position:absolute;
-      top:7px; right:7px;
+      position:absolute; top:7px; right:7px;
       width:34px; height:24px;
       border-radius:10px;
       border:1px solid rgba(255,255,255,.10);
@@ -412,47 +428,63 @@
       cursor:pointer;
     }
 
-    /* Modals */
+    /* Loading */
+    .loading{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      align-items:center;
+      justify-content:center;
+      color:rgba(233,238,245,.85);
+      font-weight:950;
+      letter-spacing:.2px;
+      user-select:none;
+    }
+    .spinner{
+      width:38px;height:38px;
+      border-radius:999px;
+      border:3px solid rgba(233,238,245,.15);
+      border-top-color: rgba(233,238,245,.85);
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin{ to{ transform: rotate(360deg); } }
+
+    /* Modal */
     .modalOverlay{
       position:absolute;
       inset:0;
-      background: rgba(0,0,0,.45);
+      background: rgba(0,0,0,.55);
       display:none;
       align-items:center;
       justify-content:center;
-      z-index:60;
+      z-index:90;
       padding:18px;
     }
     .modalOverlay.open{ display:flex; }
     .modal{
-      width:min(520px, 92vw);
+      width:min(560px, 94vw);
       border-radius:22px;
       border:1px solid var(--stroke);
-      background: rgba(12,14,18,.92);
-      box-shadow: 0 30px 90px rgba(0,0,0,.70);
+      background: rgba(12,14,18,.93);
+      box-shadow: 0 30px 95px rgba(0,0,0,.75);
       overflow:hidden;
-      animation: pop .12s ease-out;
+      animation: pop .14s ease-out;
     }
     @keyframes pop{
-      from{ transform: translateY(8px) scale(.98); opacity:.0; }
+      from{ transform: translateY(10px) scale(.985); opacity:0; }
       to{ transform: translateY(0) scale(1); opacity:1; }
     }
     .modalHead{
-      padding:14px 14px;
+      padding:14px;
       border-bottom:1px solid var(--stroke2);
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:12px;
     }
-    .modalHead h2{
-      margin:0;
-      font-size:14px;
-      font-weight:950;
-      letter-spacing:.2px;
-    }
+    .modalHead h2{ margin:0; font-size:14px; font-weight:950; letter-spacing:.2px; }
     .closeBtn{
-      width:36px; height:36px;
+      width:36px;height:36px;
       border-radius:14px;
       border:1px solid rgba(255,255,255,.10);
       background: rgba(255,255,255,.04);
@@ -466,6 +498,7 @@
       display:flex;
       justify-content:flex-end;
       gap:10px;
+      flex-wrap:wrap;
     }
 
     /* Toast */
@@ -473,120 +506,70 @@
       position:absolute;
       right:14px;
       bottom:14px;
+      z-index:95;
       display:flex;
       flex-direction:column;
       gap:10px;
-      z-index:80;
       pointer-events:none;
     }
     .toast{
       width:min(320px, 80vw);
       border-radius:16px;
       border:1px solid rgba(255,255,255,.10);
-      background: rgba(12,14,18,.92);
+      background: rgba(12,14,18,.93);
       padding:10px 12px;
-      box-shadow: 0 18px 50px rgba(0,0,0,.55);
+      box-shadow: 0 18px 55px rgba(0,0,0,.60);
       animation: toastIn .14s ease-out;
     }
-    @keyframes toastIn{ from{ transform: translateY(6px); opacity:0; } to{ transform: translateY(0); opacity:1; } }
+    @keyframes toastIn{ from{ transform: translateY(8px); opacity:0; } to{ transform: translateY(0); opacity:1; } }
     .toast b{ display:block; font-size:12px; letter-spacing:.2px; }
-    .toast span{ color:var(--muted); font-size:12px; font-weight:700; }
-
-    /* Footer */
-    .footer{
-      position:absolute;
-      left:18px;
-      right:18px;
-      bottom:12px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      gap:10px;
-      color:var(--muted2);
-      font-size:12px;
-      font-weight:800;
-      pointer-events:auto;
-      z-index:10;
-    }
-    .footer a{ color:var(--muted); text-decoration:none; }
-    .footer a:hover{ color:var(--text); text-decoration:underline; }
-
-    /* XP bar */
-    .xpWrap{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      margin-top:6px;
-    }
-    .xpBar{
-      height:8px;
-      flex:1;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      overflow:hidden;
-    }
-    .xpFill{
-      height:100%;
-      width:0%;
-      background: rgba(138,164,255,.85);
-      border-right:1px solid rgba(0,0,0,.25);
-      transition: width .18s ease;
-    }
-    .xpText{
-      font-size:12px;
-      font-weight:950;
-      color:var(--muted);
-      white-space:nowrap;
-    }
+    .toast span{ color:var(--muted); font-size:12px; font-weight:800; }
 
     /* Cursor */
-    body.cursorOn, body.cursorOn * { cursor: none !important; }
-    .cursorDot, .cursorTrail{
+    body.cursorOn, body.cursorOn *{ cursor:none !important; }
+    .cursorDot,.cursorTrail{
       position:fixed;
       left:0; top:0;
       pointer-events:none;
       z-index:9999;
-      transform: translate(-50%, -50%);
+      transform: translate(-50%,-50%);
       display:none;
     }
     .cursorDot{
       width:10px;height:10px;border-radius:999px;
-      background: rgba(233,238,245,.90);
+      background: rgba(233,238,245,.92);
       box-shadow: 0 0 0 6px rgba(138,164,255,.12);
     }
     .cursorTrail{
       width:22px;height:22px;border-radius:999px;
       border:1px solid rgba(233,238,245,.40);
       background: rgba(138,164,255,.10);
-      filter: blur(.2px);
     }
 
-    /* Compactness scaling based on density */
-    .compact{
-      --pad: calc(12px - (var(--density) * 4px));
+    /* Animation reduction */
+    .reduce *{
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+      scroll-behavior:auto !important;
     }
   </style>
 </head>
-
 <body>
   <div class="cursorDot" id="cursorDot" aria-hidden="true"></div>
   <div class="cursorTrail" id="cursorTrail" aria-hidden="true"></div>
 
-  <div class="wrap">
-    <div class="app compact" id="app">
+  <div class="page">
+    <div class="app" id="app">
 
       <div class="topbar">
         <div class="brand">
-          <div>
-            <h1>tonkotsu.online</h1>
-            <small>chat</small>
-          </div>
+          <h1>tonkotsu.online</h1>
+          <small>chat</small>
         </div>
 
-        <div class="topActions">
+        <div class="rightTop">
           <button class="iconBtn" id="inboxBtn" title="Inbox">
-            <!-- bell -->
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 22a2.2 2.2 0 0 0 2.1-1.6" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round"/>
               <path d="M6 9a6 6 0 1 1 12 0c0 7 3 7 3 7H3s3 0 3-7" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -594,62 +577,37 @@
             <div class="badge hidden" id="inboxBadge">0</div>
           </button>
 
-          <button class="iconBtn" id="settingsBtn" title="Settings">
-            <!-- sliders -->
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M4 7h10" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M18 7h2" stroke="rgba(233,238,245,.55)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M4 12h2" stroke="rgba(233,238,245,.55)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M10 12h10" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M4 17h8" stroke="rgba(233,238,245,.9)" stroke-width="2" stroke-linecap="round"/>
-              <path d="M16 17h4" stroke="rgba(233,238,245,.55)" stroke-width="2" stroke-linecap="round"/>
-              <circle cx="16" cy="7" r="2" stroke="rgba(233,238,245,.9)" stroke-width="2"/>
-              <circle cx="8" cy="12" r="2" stroke="rgba(233,238,245,.9)" stroke-width="2"/>
-              <circle cx="14" cy="17" r="2" stroke="rgba(233,238,245,.9)" stroke-width="2"/>
+          <div class="mePill" id="mePill" title="Account">
+            <div class="name" id="meName">Guest0000</div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" stroke="rgba(233,238,245,.75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-          </button>
-
-          <div class="pill">
-            <div class="meName" id="meName">Guest0000</div>
           </div>
         </div>
       </div>
 
       <div class="grid">
         <div class="left">
-          <div class="tabs">
-            <button class="tab active" id="tabOnline">Online</button>
-            <button class="tab" id="tabMessages">Messages</button>
+          <div class="panel">
+            <div class="title">Messages</div>
+            <div class="list" id="messagesList"></div>
           </div>
 
-          <div class="panel" id="onlinePanel">
-            <div class="sectionTitle">Online users</div>
+          <div class="panel">
+            <div class="title">Online users</div>
             <div class="list" id="onlineList"></div>
-          </div>
-
-          <div class="panel" id="messagesPanel" style="display:none;">
-            <div class="sectionTitle">Global</div>
-            <div class="list" id="globalList"></div>
-
-            <div class="sectionTitle" style="margin-top:12px;">DMs</div>
-            <div class="list" id="dmList"></div>
-
-            <div class="sectionTitle" style="margin-top:12px;">Group chats</div>
-            <div class="list" id="gcList"></div>
           </div>
         </div>
 
         <div class="right">
           <div class="chatHeader">
             <div>
-              <div class="chatTitle" id="chatTitle">Online</div>
-              <div class="chatSub" id="chatSub">Online users</div>
-              <div class="xpWrap" id="xpWrap" style="display:none;">
-                <div class="xpBar"><div class="xpFill" id="xpFill"></div></div>
-                <div class="xpText" id="xpText">Lv 1</div>
-              </div>
+              <div class="chatTitle" id="chatTitle">Global</div>
+              <div class="chatSub" id="chatSub">Public chat</div>
             </div>
-            <div></div>
+            <div class="cooldown" id="cooldownBox" style="display:none;">
+              <span id="cooldownText">Cooldown</span>
+            </div>
           </div>
 
           <div class="chatBody" id="chatBody"></div>
@@ -661,14 +619,8 @@
         </div>
       </div>
 
-      <div class="footer">
-        <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noopener">Support on Ko-fi</a>
-        <span>•</span>
-        <span>© 2026 tonkotsu — All rights reserved.</span>
-      </div>
-
-      <!-- Login overlay -->
-      <div class="loginOverlay" id="loginOverlay">
+      <!-- Login screen -->
+      <div class="loginScreen" id="loginScreen">
         <div class="loginCard" id="loginCard">
           <h2 class="loginTitle">Welcome</h2>
           <div class="loginSub">Login / register, or continue as guest.</div>
@@ -679,8 +631,7 @@
           <div class="row">
             <div class="pwWrap">
               <input class="field" id="passInput" type="password" placeholder="Password" autocomplete="current-password" />
-              <button class="eyeBtn" id="eyeBtn" title="Show/Hide password" aria-label="Show/Hide password">
-                <!-- eye -->
+              <button class="eyeBtn" id="eyeBtn" aria-label="Show/Hide password" title="Show/Hide password">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="rgba(233,238,245,.85)" stroke-width="2" stroke-linejoin="round"/>
                   <circle cx="12" cy="12" r="3" stroke="rgba(233,238,245,.85)" stroke-width="2"/>
@@ -697,13 +648,21 @@
           </div>
 
           <div style="height:10px"></div>
-          <div style="color:rgba(233,238,245,.55);font-weight:800;font-size:12px" id="loginHint"></div>
+          <div style="color:rgba(233,238,245,.55);font-weight:850;font-size:12px" id="loginHint"></div>
+        </div>
+      </div>
+
+      <!-- Loading overlay -->
+      <div class="overlay" id="loadingOverlay">
+        <div class="loading">
+          <div class="spinner"></div>
+          <div>Loading…</div>
         </div>
       </div>
 
       <!-- Modal -->
       <div class="modalOverlay" id="modalOverlay">
-        <div class="modal" id="modal">
+        <div class="modal">
           <div class="modalHead">
             <h2 id="modalTitle">Modal</h2>
             <button class="closeBtn" id="modalClose" aria-label="Close">
@@ -717,8 +676,13 @@
         </div>
       </div>
 
-      <!-- Toasts -->
       <div class="toasts" id="toasts"></div>
+    </div>
+
+    <div class="footer">
+      <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noopener">Support on Ko-fi</a>
+      <span>•</span>
+      <span>© 2026 tonkotsu — All rights reserved.</span>
     </div>
   </div>
 
