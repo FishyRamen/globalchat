@@ -1,899 +1,1802 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>tonkotsu.online</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     :root{
-      --bg: #0b0e14;
-      --bg2:#0a0c12;
-      --panel: rgba(15,19,28,.92);
-      --panel2: rgba(12,16,24,.86);
-      --stroke: rgba(255,255,255,.08);
-      --stroke2: rgba(255,255,255,.12);
-      --text: rgba(235,240,248,.92);
-      --muted: rgba(235,240,248,.58);
-      --muted2: rgba(235,240,248,.42);
-      --accent: rgba(140,170,255,.95);
-      --good: rgba(96, 224, 165, .9);
-      --warn: rgba(255, 90, 90, .92);
+      --bg0:#070a10;
+      --bg1:#0b0f18;
+      --panel:#0c121d;
+      --panel2:#0a101a;
+      --stroke:rgba(255,255,255,.08);
+      --text:rgba(234,240,248,.92);
+      --muted:rgba(234,240,248,.60);
+      --muted2:rgba(234,240,248,.38);
+      --accent:rgba(120,180,255,.9);
+      --danger:rgba(255,90,90,.95);
+      --good:rgba(92, 220, 160, .95);
       --shadow: 0 18px 60px rgba(0,0,0,.55);
-      --radius: 16px;
+      --r:14px;
+      --dens: 0.12;
     }
-
-    *{ box-sizing: border-box; }
-    html,body{ height:100%; margin:0; }
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
     body{
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      background: radial-gradient(1200px 900px at 15% 10%, #0e1320 0%, var(--bg) 55%, var(--bg2) 100%);
-      color: var(--text);
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color:var(--text);
+      background: radial-gradient(1200px 700px at 50% 0%, rgba(110,160,255,.12), transparent 55%),
+                  radial-gradient(900px 600px at 20% 80%, rgba(255,255,255,.06), transparent 60%),
+                  linear-gradient(180deg, var(--bg0), var(--bg1));
       overflow:hidden;
-      cursor: none; /* custom cursor always */
     }
 
-    /* Dots background (login + app) */
-    .dots{
-      position: fixed;
+    /* dotted background layer */
+    .bgDots:before{
+      content:"";
+      position:fixed;
       inset:0;
-      background-image:
-        radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
-      background-size: 26px 26px;
-      opacity: .55;
       pointer-events:none;
-      filter: contrast(105%);
-    }
-    .vignette{
-      position: fixed;
-      inset:0;
-      background: radial-gradient(900px 650px at 50% 35%, transparent 0%, rgba(0,0,0,.55) 80%);
-      pointer-events:none;
+      background-image: radial-gradient(rgba(255,255,255,.09) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity:.22;
+      mask-image: radial-gradient(1000px 600px at 50% 20%, black 55%, transparent 80%);
     }
 
-    /* Centered app wrapper — leaves background visible */
-    .stage{
-      position: relative;
+    /* centered shell */
+    .wrap{
       height:100%;
       display:flex;
       align-items:center;
       justify-content:center;
-      padding: 18px;
+      padding:28px;
+    }
+    .shell{
+      width:min(1060px, 96vw);
+      height:min(720px, 86vh);
+      border-radius: 18px;
+      background: rgba(10,14,22,.62);
+      border:1px solid var(--stroke);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      overflow:hidden;
+      position:relative;
+      transform: translateZ(0);
     }
 
-    .shell{
-      width: min(1080px, 92vw);
-      height: min(720px, 86vh);
+    .noAnim *{ animation:none!important; transition:none!important; }
+
+    /* login view */
+    .loginView{
+      position:absolute; inset:0;
+      display:flex; align-items:center; justify-content:center;
+      padding:28px;
+    }
+    .card{
+      width:min(420px, 92vw);
+      background: rgba(9,13,20,.72);
+      border:1px solid var(--stroke);
+      border-radius: 18px;
+      box-shadow: 0 18px 70px rgba(0,0,0,.6);
+      padding: 18px 16px 14px;
+      position:relative;
+      transition: transform .16s ease, border-color .16s ease;
+    }
+    .card:hover{ transform: translateY(-2px); border-color: rgba(255,255,255,.12); }
+    .brand{
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:10px;
+    }
+    .title{
+      font-weight:900;
+      letter-spacing:.2px;
+      font-size:18px;
+    }
+    .sub{
+      color:var(--muted);
+      font-size:12px;
+      margin-top:2px;
+    }
+    .field{
+      width:100%;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--text);
+      border-radius: 12px;
+      padding:10px 10px;
+      outline:none;
+      font-weight:650;
+      font-size:13px;
+      transition:border-color .14s ease;
+    }
+    .field:focus{ border-color: rgba(120,180,255,.42); }
+    .row{ display:flex; gap:10px; }
+    .row > *{ flex:1; }
+    .btn{
+      background: rgba(120,180,255,.14);
+      border:1px solid rgba(120,180,255,.24);
+      color:var(--text);
+      border-radius: 12px;
+      padding:10px 12px;
+      font-weight:850;
+      font-size:13px;
+      cursor:pointer;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+      user-select:none;
+    }
+    .btn:hover{ transform: translateY(-1px); border-color: rgba(120,180,255,.36); }
+    .btn:active{ transform: translateY(0px); }
+    .btn.ghost{
+      background: rgba(255,255,255,.04);
+      border-color: rgba(255,255,255,.10);
+      color: rgba(234,240,248,.84);
+    }
+
+    .pwWrap{ position:relative; }
+    .pwEye{
+      position:absolute;
+      right:8px; top:50%;
+      transform: translateY(-50%);
+      width:30px; height:30px;
+      border-radius: 10px;
+      display:flex; align-items:center; justify-content:center;
+      background: rgba(255,255,255,.05);
+      border:1px solid rgba(255,255,255,.08);
+      cursor:pointer;
+      user-select:none;
+      font-size:14px;
+      color: rgba(234,240,248,.85);
+    }
+
+    .loginFoot{
+      margin-top:12px;
+      font-size:11px;
+      color: rgba(234,240,248,.52);
       display:flex;
       flex-direction:column;
-      gap:12px;
-      animation: pop .18s ease-out;
+      gap:4px;
+      align-items:center;
+    }
+    .loginFoot a{
+      color: rgba(200,220,255,.78);
+      text-decoration:none;
+    }
+    .loginFoot a:hover{ text-decoration:underline; }
+    .finePrint{
+      margin-top:2px;
+      opacity:.65;
+      text-align:center;
+      line-height:1.35;
     }
 
-    @keyframes pop{
-      from{ transform: translateY(8px); opacity:0; }
-      to{ transform:none; opacity:1; }
+    /* app view */
+    .appView{
+      position:absolute; inset:0;
+      display:none;
+      grid-template-columns: 320px 1fr;
+      background: transparent;
     }
 
-    .card{
-      background: var(--panel);
-      border: 1px solid var(--stroke);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow:hidden;
+    /* sidebar */
+    .sidebar{
+      border-right:1px solid var(--stroke);
+      background: rgba(8,12,18,.52);
+      display:flex; flex-direction:column;
+      min-width:280px;
     }
-
-    /* Top bar */
-    .topbar{
+    .sbTop{
       display:flex;
       align-items:center;
       justify-content:space-between;
-      padding: 10px 12px;
-      background: rgba(9,12,18,.62);
-      border-bottom: 1px solid var(--stroke);
+      padding: 12px 12px 10px;
+      border-bottom:1px solid var(--stroke);
     }
-    .brand{
-      font-weight: 900;
-      letter-spacing: .2px;
-      font-size: 14px;
-      color: rgba(238,242,250,.92);
-      display:flex;
-      align-items:center;
-      gap:10px;
-      white-space:nowrap;
+    .sbTitle{
+      font-weight:900;
+      font-size:13px;
+      color: rgba(234,240,248,.86);
+      letter-spacing:.2px;
     }
-    .brand .pill{
-      border: 1px solid var(--stroke2);
-      padding: 4px 8px;
-      border-radius: 999px;
-      font-size: 12px;
-      color: var(--muted);
-      background: rgba(0,0,0,.18);
-    }
-
-    .rightTools{
-      display:flex;
-      align-items:center;
-      gap:10px;
-    }
-
     .iconBtn{
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.16);
-      color: var(--text);
-      display:grid;
-      place-items:center;
-      font-weight: 900;
-      user-select:none;
+      width:34px;height:34px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;
       position:relative;
+      user-select:none;
     }
-    .iconBtn:hover{ border-color: var(--stroke2); }
-
+    .iconBtn:hover{ border-color: rgba(255,255,255,.14); }
     .badge{
       position:absolute;
-      top:-6px;
-      right:-6px;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 6px;
+      top:-6px; right:-6px;
+      background: rgba(255,75,75,.92);
+      color:white;
+      font-weight:900;
+      font-size:11px;
+      min-width:18px;
+      height:18px;
+      padding:0 6px;
       border-radius: 999px;
-      background: var(--warn);
-      color: rgba(10,10,10,.96);
-      font-size: 12px;
-      font-weight: 900;
       display:none;
-      align-items:center;
-      justify-content:center;
-      border: 2px solid rgba(0,0,0,.5);
+      align-items:center; justify-content:center;
+      border: 2px solid rgba(10,14,22,.9);
     }
 
-    /* User dropdown */
-    .userChip{
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.14);
-      border-radius: 12px;
-      padding: 7px 10px;
-      font-size: 13px;
-      font-weight: 850;
-      display:flex;
-      align-items:center;
-      gap:8px;
-      user-select:none;
-      max-width: 280px;
-      overflow:hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .dotStatus{
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: var(--good);
-      flex: 0 0 auto;
-      opacity:.95;
-    }
-    .dotStatus.idle{ background: rgba(255, 204, 90, .95); }
-    .dotStatus.dnd{ background: rgba(255, 90, 90, .95); }
-    .dotStatus.invisible{ background: rgba(200,200,200,.35); }
-
-    .menu{
-      position:absolute;
-      top: 46px;
-      right: 12px;
-      width: 220px;
-      border-radius: 14px;
-      background: rgba(12,16,24,.98);
-      border: 1px solid var(--stroke2);
-      box-shadow: 0 14px 40px rgba(0,0,0,.6);
-      padding: 6px;
-      display:none;
-      z-index: 20;
-    }
-    .menu button{
-      width:100%;
-      text-align:left;
-      padding: 10px 10px;
-      border:0;
-      border-radius: 10px;
-      background: transparent;
-      color: var(--text);
-      font-weight: 850;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-    }
-    .menu button:hover{
-      background: rgba(255,255,255,.05);
-    }
-    .menu .minor{
-      color: var(--muted);
-      font-weight: 800;
-      font-size: 12px;
-    }
-
-    /* Main layout: sidebar + content */
-    .main{
-      flex: 1 1 auto;
-      display:flex;
-      min-height:0;
-      background: rgba(0,0,0,.04);
-    }
-
-    .sidebar{
-      width: 280px;
-      min-width: 240px;
-      border-right: 1px solid var(--stroke);
-      background: rgba(9,12,18,.52);
-      padding: 10px;
+    .sbBody{
+      padding: 10px 10px 12px;
       display:flex;
       flex-direction:column;
       gap:10px;
+      overflow:auto;
     }
-
-    .sectionTitle{
+    .secLabel{
+      font-size:11px;
+      color: rgba(234,240,248,.46);
+      font-weight:800;
+      letter-spacing:.2px;
+      padding: 2px 6px;
       display:flex;
       align-items:center;
       justify-content:space-between;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 900;
-      letter-spacing: .2px;
-      padding: 4px 2px;
     }
-
     .list{
       display:flex;
       flex-direction:column;
       gap:6px;
-      min-height:0;
-      overflow:auto;
-      padding-right: 4px;
     }
-
-    .row{
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.12);
-      border-radius: 12px;
-      padding: 8px 10px;
+    .item{
       display:flex;
       align-items:center;
-      justify-content:space-between;
       gap:10px;
+      padding: 9px 10px;
+      border-radius: 12px;
+      border:1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.03);
+      cursor:pointer;
       user-select:none;
+      transition: border-color .12s ease, transform .12s ease, background .12s ease;
     }
-    .row:hover{ border-color: var(--stroke2); background: rgba(0,0,0,.16); }
-    .row .left{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      min-width:0;
+    .item:hover{ border-color: rgba(255,255,255,.12); transform: translateY(-1px); }
+    .item.active{
+      border-color: rgba(120,180,255,.24);
+      background: rgba(120,180,255,.08);
     }
-    .row .name{
-      font-size: 13px;
-      font-weight: 900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width: 170px;
+    .dot{
+      width:10px;height:10px;border-radius:99px;
+      background: rgba(255,255,255,.18);
+      border:1px solid rgba(255,255,255,.14);
+      flex:0 0 auto;
     }
-    .row .mini{
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 800;
-      white-space:nowrap;
-    }
+    .dot.green{ background: rgba(92,220,160,.22); border-color: rgba(92,220,160,.32); }
+    .dot.yellow{ background: rgba(250,210,120,.18); border-color: rgba(250,210,120,.28); }
+    .dot.red{ background: rgba(255,90,90,.18); border-color: rgba(255,90,90,.28); }
+    .dot.gray{ background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.10); }
 
-    .content{
-      flex: 1 1 auto;
+    .itText{
       display:flex;
       flex-direction:column;
       min-width:0;
-      min-height:0;
-      background: rgba(0,0,0,.02);
+      flex:1;
+    }
+    .itName{
+      font-weight:900;
+      font-size:12px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .itSub{
+      font-size:11px;
+      color: rgba(234,240,248,.48);
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      margin-top:1px;
     }
 
-    .contentHeader{
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--stroke);
+    /* main */
+    .main{
+      display:flex;
+      flex-direction:column;
+      background: rgba(7,10,16,.35);
+    }
+    .topbar{
       display:flex;
       align-items:center;
       justify-content:space-between;
+      padding: 12px 14px;
+      border-bottom:1px solid var(--stroke);
+      background: rgba(9,13,20,.55);
+    }
+    .viewTitle{
+      display:flex; flex-direction:column;
+      min-width:0;
+    }
+    .viewTitle .h{
+      font-weight:950;
+      font-size:13px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .viewTitle .m{
+      font-size:11px;
+      color: rgba(234,240,248,.50);
+      margin-top:2px;
+      display:flex;
       gap:10px;
-      background: rgba(9,12,18,.44);
+      align-items:center;
     }
-    .contentHeader .title{
-      font-size: 13px;
-      font-weight: 950;
+    .cooldown{
+      font-weight:900;
+      font-size:11px;
+      padding:4px 8px;
+      border-radius: 999px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: rgba(234,240,248,.72);
+      display:none;
+    }
+    .cooldown.bad{
+      border-color: rgba(255,90,90,.32);
+      background: rgba(255,90,90,.10);
+      color: rgba(255,210,210,.95);
+    }
+
+    .rightZone{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .userChip{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 7px 10px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      cursor:pointer;
+      user-select:none;
+      position:relative;
+      max-width: 240px;
+    }
+    .userChip:hover{ border-color: rgba(255,255,255,.14); }
+    .userName{
+      font-weight:950;
+      font-size:12px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
     }
-    .contentHeader .sub{
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 800;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width: 45%;
+    .chev{ color: rgba(234,240,248,.52); font-size:12px; }
+
+    .dropdown{
+      position:absolute;
+      top:44px;
+      right:0;
+      width: 180px;
+      background: rgba(9,13,20,.92);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 14px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.55);
+      padding: 6px;
+      display:none;
+      z-index: 20;
+    }
+    .ddItem{
+      padding: 10px 10px;
+      border-radius: 12px;
+      font-weight:900;
+      font-size:12px;
+      color: rgba(234,240,248,.88);
+      cursor:pointer;
+      user-select:none;
+      border:1px solid transparent;
+    }
+    .ddItem:hover{
+      background: rgba(255,255,255,.05);
+      border-color: rgba(255,255,255,.08);
     }
 
     .chat{
-      flex: 1 1 auto;
-      min-height:0;
+      flex:1;
+      padding: 14px;
       overflow:auto;
-      padding: 12px;
       display:flex;
       flex-direction:column;
-      gap: 8px;
+      gap:8px;
     }
 
     .message{
       max-width: 78%;
       padding: 8px 10px;
       border-radius: 12px;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.14);
       font-size: 13px;
       line-height: 1.35;
-      animation: msgin .14s ease-out;
+      border:1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.03);
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      position:relative;
     }
-    @keyframes msgin{
-      from{ transform: translateY(6px); opacity:0; }
-      to{ transform:none; opacity:1; }
+    .message.me{
+      align-self:flex-end;
+      background: rgba(120,180,255,.08);
+      border-color: rgba(120,180,255,.14);
     }
-    .message.me{ align-self:flex-end; background: rgba(22,28,44,.26); }
-    .message.other{ align-self:flex-start; }
-
-    .msgUser{
+    .message .msgUser{
       font-weight: 950;
       font-size: 12px;
-      margin-bottom: 2px;
-      color: rgba(235,240,248,.9);
-      display:flex;
-      gap:8px;
-      align-items:center;
-      min-width:0;
+      color: rgba(234,240,248,.88);
+      cursor:pointer;
+      user-select:none;
     }
-    .msgUser span{
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width: 220px;
+    .message .msgText{
+      font-weight: 700;
+      color: rgba(234,240,248,.88);
+      word-wrap:break-word;
+      white-space:pre-wrap;
     }
-    .msgMeta{
-      color: var(--muted2);
-      font-weight: 850;
-      font-size: 11px;
+    .message .msgMeta{
+      font-size: 10.5px;
+      color: rgba(234,240,248,.42);
+      margin-top:2px;
     }
-    .msgText{ font-weight: 850; color: rgba(233,238,245,.92); word-break: break-word; }
+    .mention{
+      color: rgba(170,210,255,.95);
+      font-weight:950;
+    }
 
-    .blurred{
+    .blockedBlur{
       filter: blur(6px);
+      user-select:none;
     }
-    .revealHint{
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 850;
+    .blockedTag{
+      position:absolute;
+      top:-8px;
+      right:-8px;
+      background: rgba(255,90,90,.92);
+      border: 2px solid rgba(9,13,20,.9);
+      color:white;
+      font-weight:950;
+      font-size:10px;
+      padding:4px 7px;
+      border-radius: 999px;
+    }
+    .revealBtn{
+      margin-top:6px;
+      align-self:flex-start;
+      font-size:11px;
+      font-weight:900;
+      padding:6px 9px;
+      border-radius: 10px;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: rgba(234,240,248,.86);
+      cursor:pointer;
+      user-select:none;
+      width:fit-content;
     }
 
     .composer{
-      border-top: 1px solid var(--stroke);
-      padding: 10px;
+      border-top:1px solid var(--stroke);
+      padding: 10px 12px 12px;
+      background: rgba(9,13,20,.55);
       display:flex;
-      gap:8px;
-      align-items:center;
-      background: rgba(9,12,18,.50);
+      gap:10px;
+      align-items:flex-end;
     }
     .input{
-      flex: 1 1 auto;
-      min-width:0;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.16);
-      border-radius: 12px;
-      padding: 10px 12px;
-      color: var(--text);
-      font-weight: 850;
+      flex:1;
+      resize:none;
+      height: 42px;
+      max-height: 110px;
+      padding: 10px 10px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: rgba(234,240,248,.92);
       outline:none;
-      font-size: 13px;
+      font-weight:700;
+      font-size:13px;
+      line-height:1.25;
+      overflow:auto;
+      transition: border-color .14s ease;
     }
+    .input:focus{ border-color: rgba(120,180,255,.28); }
     .sendBtn{
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.16);
-      color: var(--text);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-weight: 950;
+      width:44px;height:44px;
+      border-radius: 14px;
+      border:1px solid rgba(120,180,255,.20);
+      background: rgba(120,180,255,.10);
+      color: rgba(234,240,248,.92);
+      cursor:pointer;
       user-select:none;
+      font-size:16px;
+      font-weight:900;
+      display:flex;align-items:center;justify-content:center;
+      transition: transform .12s ease, border-color .12s ease;
     }
-    .sendBtn:hover{ border-color: var(--stroke2); }
-
-    .cooldown{
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 850;
-      min-width: 110px;
-      text-align:right;
-    }
+    .sendBtn:hover{ transform: translateY(-1px); border-color: rgba(120,180,255,.32); }
+    .sendBtn:active{ transform: translateY(0px); }
 
     .shake{
-      animation: shake .28s linear;
-      border-color: var(--warn) !important;
+      animation: shake .30s linear;
+      border-color: rgba(255,90,90,.70) !important;
     }
     @keyframes shake{
-      0%{ transform:translateX(0) }
-      25%{ transform:translateX(-4px) }
-      50%{ transform:translateX(4px) }
-      75%{ transform:translateX(-3px) }
-      100%{ transform:translateX(0) }
+      0%{transform:translateX(0)}
+      25%{transform:translateX(-4px)}
+      50%{transform:translateX(4px)}
+      75%{transform:translateX(-3px)}
+      100%{transform:translateX(0)}
     }
 
-    /* Login screen */
-    .loginWrap{
-      width: min(520px, 92vw);
-      margin: auto;
-      padding: 14px;
-      transform-origin: center;
-    }
-    .loginCard{
-      padding: 16px;
-    }
-    .loginTitle{
-      font-size: 18px;
-      font-weight: 950;
-      letter-spacing: .2px;
-    }
-    .loginSub{
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 800;
-    }
-    .fields{
-      margin-top: 14px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .fieldRow{
-      display:flex;
-      gap:10px;
-    }
-    .field{
-      width:100%;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.14);
-      border-radius: 12px;
-      padding: 10px 12px;
-      color: var(--text);
-      font-weight: 850;
-      outline:none;
-      font-size: 13px;
-    }
-    .pwWrap{
-      position: relative;
-      width:100%;
-    }
-    .eye{
-      position:absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 34px;
-      height: 34px;
-      border-radius: 12px;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.12);
-      display:grid;
-      place-items:center;
-      font-weight: 950;
-      color: rgba(235,240,248,.82);
-      user-select:none;
-    }
-    .eye:hover{ border-color: var(--stroke2); }
-    .loginBtns{
-      display:flex;
-      gap:10px;
-      margin-top: 12px;
-    }
-    .btn{
-      flex:1;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.14);
-      color: var(--text);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font-weight: 950;
-      user-select:none;
-      text-align:center;
-    }
-    .btn:hover{ border-color: var(--stroke2); }
-    .err{
-      margin-top: 10px;
-      color: rgba(255, 120, 120, .95);
-      font-weight: 900;
-      font-size: 12px;
-      min-height: 16px;
-    }
-
-    /* Footer (kofi + rights) */
-    .footerNote{
-      margin-top: 10px;
-      text-align:center;
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 800;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-    .footerNote a{
-      color: rgba(210,225,255,.86);
-      text-decoration:none;
-      font-weight: 900;
-    }
-    .footerNote a:hover{ text-decoration: underline; }
-
-    /* Modals */
-    .modalBack{
-      position: fixed;
-      inset:0;
-      background: rgba(0,0,0,.60);
+    /* modals */
+    .overlay{
+      position:absolute; inset:0;
+      background: rgba(0,0,0,.55);
       display:none;
       align-items:center;
       justify-content:center;
-      z-index: 50;
-      padding: 16px;
+      padding:18px;
+      z-index:30;
     }
     .modal{
-      width: min(520px, 92vw);
+      width:min(520px, 92vw);
       max-height: min(560px, 86vh);
       overflow:auto;
-      border-radius: 16px;
-      background: rgba(12,16,24,.98);
-      border: 1px solid var(--stroke2);
-      box-shadow: 0 18px 60px rgba(0,0,0,.65);
+      background: rgba(9,13,20,.94);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius: 18px;
+      box-shadow: 0 18px 70px rgba(0,0,0,.65);
+      padding: 12px 12px 14px;
     }
+    .modal.small{ width:min(440px, 92vw); }
     .modalHead{
-      padding: 12px 12px;
-      border-bottom: 1px solid var(--stroke);
       display:flex;
       align-items:center;
       justify-content:space-between;
-      gap:12px;
+      padding: 6px 4px 10px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      margin-bottom:10px;
     }
-    .modalHead .h{
-      font-weight: 950;
-      font-size: 13px;
+    .mhTitle{
+      font-weight:950;
+      font-size:13px;
     }
-    .xbtn{
-      width: 34px;
-      height: 34px;
+    .xBtn{
+      width:34px;height:34px;
       border-radius: 12px;
-      border: 1px solid var(--stroke);
-      background: rgba(0,0,0,.12);
-      color: var(--text);
-      display:grid;
-      place-items:center;
-      font-weight: 950;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;align-items:center;justify-content:center;
+      cursor:pointer;
       user-select:none;
+      font-weight:950;
     }
-    .xbtn:hover{ border-color: var(--stroke2); }
-    .modalBody{
-      padding: 12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
+    .xBtn:hover{ border-color: rgba(255,255,255,.14); }
+
     .kv{
       display:flex;
+      align-items:center;
       justify-content:space-between;
       gap:10px;
-      align-items:center;
-      border: 1px solid var(--stroke);
+      padding:8px 6px;
       border-radius: 12px;
-      padding: 10px 10px;
-      background: rgba(0,0,0,.12);
+      border:1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.03);
+      margin-bottom:8px;
     }
     .kv .k{
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 900;
+      font-size:12px;
+      font-weight:950;
+      color: rgba(234,240,248,.82);
     }
     .kv .v{
-      font-weight: 950;
-      font-size: 12px;
-      color: rgba(235,240,248,.92);
+      font-size:12px;
+      font-weight:900;
+      color: rgba(234,240,248,.66);
+      text-align:right;
       max-width: 60%;
+      white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
-      white-space:nowrap;
-      text-align:right;
     }
+    .kvRow{ display:flex; gap:10px; }
+    .kvRow > *{ flex:1; }
 
-    .sliderRow{
+    .sliderWrap{
       display:flex;
-      flex-direction:column;
-      gap:8px;
-      border: 1px solid var(--stroke);
-      border-radius: 12px;
-      padding: 10px;
-      background: rgba(0,0,0,.12);
-    }
-    .sliderTop{
-      display:flex;
-      justify-content:space-between;
       align-items:center;
       gap:10px;
-    }
-    .sliderTop .k{
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .sliderTop .v{
-      color: rgba(235,240,248,.85);
-      font-size: 12px;
-      font-weight: 950;
-      min-width: 44px;
-      text-align:right;
+      width:100%;
     }
     input[type="range"]{
       width:100%;
-      accent-color: rgba(160,185,255,.95);
-      height: 22px;
-      cursor:none;
+      accent-color: rgba(120,180,255,.85);
     }
 
-    .toggleRow{
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      border: 1px solid var(--stroke);
+    .miniBtn{
+      padding:8px 10px;
       border-radius: 12px;
-      padding: 10px;
-      background: rgba(0,0,0,.12);
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: rgba(234,240,248,.88);
+      font-weight:900;
+      font-size:12px;
+      cursor:pointer;
+      user-select:none;
     }
-    .toggleRow .k{
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .toggleRow select, .toggleRow input[type="checkbox"]{
-      background: rgba(0,0,0,.12);
-      border: 1px solid var(--stroke);
-      color: var(--text);
-      border-radius: 10px;
-      padding: 8px 10px;
-      font-weight: 900;
-      cursor:none;
-    }
+    .miniBtn:hover{ border-color: rgba(255,255,255,.14); }
 
-    .actionsRow{
+    /* toasts (minimal) */
+    .toasts{
+      position:absolute;
+      right: 14px;
+      bottom: 14px;
       display:flex;
-      gap:10px;
+      flex-direction:column;
+      gap:8px;
+      z-index: 40;
+      pointer-events:none;
     }
-    .actionsRow .btn{
-      flex:1;
-    }
-
-    /* Reduce animations */
-    .noAnim *{
-      animation: none !important;
-      transition: none !important;
-      scroll-behavior: auto !important;
-    }
-
-    /* Custom cursor elements */
-    .cursorDot, .cursorTrail{
-      position: fixed;
-      left: 0;
-      top: 0;
-      pointer-events: none;
-      z-index: 9999;
-      transform: translate(-50%, -50%);
-      mix-blend-mode: normal;
-    }
-    .cursorDot{
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(235,240,248,.95);
-      box-shadow: 0 0 0 6px rgba(140,170,255,.12);
-      opacity: 0;
-    }
-    .cursorTrail{
-      width: 26px;
-      height: 26px;
-      border-radius: 999px;
-      border: 2px solid rgba(235,240,248,.78);
-      opacity: 0;
-    }
-
-    /* Loading overlay */
-    .loaderBack{
-      position: fixed;
-      inset:0;
-      background: rgba(0,0,0,.62);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index: 60;
-    }
-    .loader{
-      width: 40px;
-      height: 40px;
-      border-radius: 999px;
-      border: 3px solid rgba(255,255,255,.12);
-      border-top-color: rgba(160,185,255,.95);
-      animation: spin .7s linear infinite;
-    }
-    @keyframes spin{ to{ transform: rotate(360deg); } }
-
-    /* Right-click context menu (mute) */
-    .ctx{
-      position: fixed;
-      z-index: 100;
-      display:none;
-      width: 200px;
-      padding: 6px;
+    .toast{
+      pointer-events:none;
+      background: rgba(9,13,20,.92);
+      border:1px solid rgba(255,255,255,.10);
       border-radius: 14px;
-      background: rgba(12,16,24,.98);
-      border: 1px solid var(--stroke2);
-      box-shadow: 0 18px 60px rgba(0,0,0,.65);
+      padding: 10px 12px;
+      width: 260px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.55);
+      animation: toastIn .18s ease;
     }
-    .ctx button{
-      width:100%;
-      text-align:left;
-      padding: 10px 10px;
-      border:0;
-      border-radius: 10px;
-      background: transparent;
-      color: var(--text);
-      font-weight: 900;
+    .toast .t1{ font-weight:950; font-size:12px; }
+    .toast .t2{ font-weight:850; font-size:11px; color: rgba(234,240,248,.58); margin-top:2px; }
+    @keyframes toastIn{
+      from{ transform: translateY(8px); opacity:.0; }
+      to{ transform: translateY(0); opacity:1; }
     }
-    .ctx button:hover{ background: rgba(255,255,255,.05); }
 
-    /* Scrollbar subtle */
-    ::-webkit-scrollbar { width: 10px; }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255,255,255,.08);
+    /* custom cursor */
+    body.cursorOff *{ cursor:auto !important; }
+    body.cursorDot, body.cursorTrail{ cursor:none !important; }
+    .curDot{
+      position:fixed;
+      width: 10px; height:10px;
       border-radius: 999px;
-      border: 3px solid transparent;
-      background-clip: padding-box;
+      border:1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.10);
+      pointer-events:none;
+      z-index: 9999;
+      transform: translate(-50%,-50%);
+      display:none;
     }
-    ::-webkit-scrollbar-thumb:hover{ background: rgba(255,255,255,.12); background-clip: padding-box; }
-
-    /* Make sure native cursor never shows on hover */
-    button, a, input, select, textarea, .row, .iconBtn, .userChip, .eye { cursor: none !important; }
+    .trail{
+      position:fixed;
+      pointer-events:none;
+      z-index: 9998;
+      display:none;
+    }
+    .trail span{
+      position:absolute;
+      width: 8px; height:8px;
+      border-radius: 999px;
+      background: rgba(120,180,255,.18);
+      border:1px solid rgba(120,180,255,.16);
+      transform: translate(-50%,-50%);
+      opacity:.0;
+      animation: trailFade .25s linear forwards;
+    }
+    @keyframes trailFade{
+      from{ opacity:.85; }
+      to{ opacity:0; transform: translate(-50%,-50%) scale(1.6); }
+    }
   </style>
 </head>
+<body class="bgDots cursorTrail">
+  <div class="curDot" id="curDot"></div>
+  <div class="trail" id="trail"></div>
 
-<body>
-  <div class="dots"></div>
-  <div class="vignette"></div>
+  <div class="wrap">
+    <div class="shell" id="shell">
 
-  <div class="cursorDot" id="cursorDot"></div>
-  <div class="cursorTrail" id="cursorTrail"></div>
-
-  <div class="loaderBack" id="loaderBack"><div class="loader"></div></div>
-
-  <div class="ctx" id="ctx">
-    <button id="ctxMuteBtn">Mute</button>
-  </div>
-
-  <div class="modalBack" id="modalBack">
-    <div class="modal" id="modal">
-      <div class="modalHead">
-        <div class="h" id="modalTitle">Modal</div>
-        <button class="xbtn" id="modalClose">✕</button>
-      </div>
-      <div class="modalBody" id="modalBody"></div>
-    </div>
-  </div>
-
-  <div class="stage">
-
-    <!-- LOGIN VIEW -->
-    <div class="loginWrap" id="loginView">
-      <div class="card loginCard" id="loginCard">
-        <div class="loginTitle">tonkotsu.online</div>
-        <div class="loginSub">Sign in or continue as guest. Minimal, compact, and fast.</div>
-
-        <div class="fields">
-          <input class="field" id="userField" placeholder="Username (3-20, letters/numbers/_/.)" autocomplete="username" />
-          <div class="pwWrap">
-            <input class="field" id="passField" placeholder="Password (min 4)" type="password" autocomplete="current-password" />
-            <div class="eye" id="eyeBtn" title="Show/Hide">👁</div>
-          </div>
-          <div class="loginBtns">
-            <div class="btn" id="loginBtn">Login / Create</div>
-            <div class="btn" id="guestBtn">Guest</div>
-          </div>
-          <div class="err" id="loginErr"></div>
-        </div>
-      </div>
-
-      <div class="footerNote">
-        <div><a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noopener">Support on Ko-fi</a></div>
-        <div>© <span id="year"></span> tonkotsu.online — All rights reserved.</div>
-      </div>
-    </div>
-
-    <!-- APP VIEW -->
-    <div class="shell card" id="appView" style="display:none;">
-      <div class="topbar">
-        <div class="brand">
-          <span>tonkotsu.online</span>
-          <span class="pill" id="activePill">Global</span>
-        </div>
-
-        <div class="rightTools">
-          <button class="iconBtn" id="inboxBtn" title="Inbox">
-            ⌁
-            <div class="badge" id="inboxBadge">0</div>
-          </button>
-          <button class="iconBtn" id="leaderboardBtn" title="Leaderboard">🏆</button>
-
-          <div style="position:relative;">
-            <div class="userChip" id="userChip">
-              <div class="dotStatus" id="statusDot"></div>
-              <div id="meName" style="min-width:0; overflow:hidden; text-overflow:ellipsis;"></div>
-              <div style="opacity:.6;">▾</div>
-            </div>
-            <div class="menu" id="userMenu">
-              <button id="menuProfile"><span>Profile</span><span class="minor">View</span></button>
-              <button id="menuSettings"><span>Settings</span><span class="minor">Adjust</span></button>
-              <button id="menuLogout"><span>Log out</span><span class="minor">Exit</span></button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="main">
-        <div class="sidebar" id="sidebar">
-          <div class="sectionTitle">
-            <span>Messages</span>
-            <span class="mini" id="msgCountMini"></span>
-          </div>
-          <div class="list" id="messagesList"></div>
-
-          <div class="sectionTitle">
-            <span>Online users</span>
-            <span class="mini" id="onlineCountMini"></span>
-          </div>
-          <div class="list" id="onlineList"></div>
-        </div>
-
-        <div class="content">
-          <div class="contentHeader">
+      <!-- LOGIN -->
+      <div class="loginView" id="loginView">
+        <div class="card">
+          <div class="brand">
             <div>
-              <div class="title" id="chatTitle">Global</div>
-              <div class="sub" id="chatSub">Everyone can talk here. Mentions ping your inbox.</div>
+              <div class="title">tonkotsu.online</div>
+              <div class="sub">Sign in, or use a guest session.</div>
             </div>
-            <div class="cooldown" id="cooldownText"></div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <input class="field" id="lu" placeholder="Username (3–20, letters/numbers/_/.)" autocomplete="username"/>
+            <div class="pwWrap">
+              <input class="field" id="lp" placeholder="Password (min 4)" type="password" autocomplete="current-password"/>
+              <div class="pwEye" id="pwEye" title="Show/Hide">👁</div>
+            </div>
+            <div class="row">
+              <button class="btn" id="loginBtn">Login / Create</button>
+              <button class="btn ghost" id="guestBtn">Guest</button>
+            </div>
+            <div id="loginErr" style="color:rgba(255,140,140,.95); font-weight:850; font-size:12px; min-height:16px;"></div>
+          </div>
+
+          <div class="loginFoot">
+            <div class="finePrint">
+              <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noopener">Support on Ko-fi</a>
+              <span style="opacity:.55;">•</span>
+              <span>All rights reserved.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- APP -->
+      <div class="appView" id="appView">
+        <div class="sidebar">
+          <div class="sbTop">
+            <div class="sbTitle">tonkotsu</div>
+            <div style="display:flex; gap:8px;">
+              <div class="iconBtn" id="inboxBtn" title="Inbox">
+                🔔
+                <div class="badge" id="inboxBadge">0</div>
+              </div>
+              <div class="iconBtn" id="leaderBtn" title="Leaderboard">🏆</div>
+            </div>
+          </div>
+
+          <div class="sbBody">
+            <div class="secLabel">
+              <span>Messages</span>
+              <span style="opacity:.55; font-weight:950; font-size:11px;" id="msgCountHint"></span>
+            </div>
+            <div class="list" id="messagesList"></div>
+
+            <div class="secLabel">
+              <span>Online users</span>
+              <span style="opacity:.55; font-weight:950; font-size:11px;" id="onlineCountHint"></span>
+            </div>
+            <div class="list" id="onlineList"></div>
+          </div>
+        </div>
+
+        <div class="main">
+          <div class="topbar">
+            <div class="viewTitle">
+              <div class="h" id="viewName">Global</div>
+              <div class="m">
+                <span id="viewMeta">Connected</span>
+                <span class="cooldown" id="cooldownPill">Cooldown</span>
+              </div>
+            </div>
+
+            <div class="rightZone">
+              <div class="userChip" id="userChip">
+                <div class="userName" id="meName">…</div>
+                <div class="chev">▾</div>
+                <div class="dropdown" id="userDD">
+                  <div class="ddItem" id="ddProfile">Profile</div>
+                  <div class="ddItem" id="ddSettings">Settings</div>
+                  <div class="ddItem" id="ddLogout" style="color:rgba(255,160,160,.95);">Log out</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="chat" id="chat"></div>
 
           <div class="composer">
-            <input class="input" id="msgInput" placeholder="Message… (use @username for mentions)" />
-            <button class="sendBtn" id="sendBtn">Send</button>
+            <textarea class="input" id="input" placeholder="Message… (use @username to mention)"></textarea>
+            <div class="sendBtn" id="sendBtn">➤</div>
           </div>
         </div>
       </div>
-    </div>
 
+      <!-- MODALS -->
+      <div class="overlay" id="overlay">
+        <div class="modal" id="modalBox"></div>
+      </div>
+
+      <!-- TOASTS -->
+      <div class="toasts" id="toasts"></div>
+    </div>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="app.js"></script>
   <script>
-    document.getElementById("year").textContent = new Date().getFullYear();
+    // ---------- helpers ----------
+    const $ = (id)=>document.getElementById(id);
+    const esc = (s)=>String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+    const fmtTime = (ts)=> {
+      try {
+        const d = new Date(ts);
+        return d.toLocaleString(undefined, { month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit" });
+      } catch { return ""; }
+    };
+    const fmtDate = (ts)=>{
+      try {
+        const d = new Date(ts);
+        return d.toLocaleDateString(undefined, { year:"numeric", month:"long", day:"2-digit" });
+      } catch { return ""; }
+    };
+
+    // ---------- socket ----------
+    const socket = io();
+
+    // ---------- state ----------
+    let me = { username:null, guest:false, token:null, settings:null, status:"online", xp:null };
+    let view = { type:"global", key:"global", label:"Global", groupId:null, withUser:null };
+    let social = { friends:[], incoming:[], outgoing:[], blocked:[] };
+    let groups = [];
+    let onlineUsers = [];
+    let dmThreads = [];
+    let lastXpLevel = 1;
+
+    // cooldown
+    let lastSendAt = 0;
+    let cooldownTimer = null;
+
+    // blocked reveal toggles
+    const revealMap = new Set(); // message unique keys to reveal
+
+    // ---------- custom cursor ----------
+    const curDot = $("curDot");
+    const trail = $("trail");
+
+    let cursorMode = "trail"; // off | dot | trail
+
+    function setCursorMode(mode){
+      cursorMode = mode;
+      document.body.classList.remove("cursorOff","cursorDot","cursorTrail");
+      if(mode==="off") document.body.classList.add("cursorOff");
+      if(mode==="dot") document.body.classList.add("cursorDot");
+      if(mode==="trail") document.body.classList.add("cursorTrail");
+
+      curDot.style.display = (mode==="dot" || mode==="trail") ? "block" : "none";
+      trail.style.display = (mode==="trail") ? "block" : "none";
+    }
+
+    let mx=0,my=0;
+    window.addEventListener("mousemove",(e)=>{
+      mx=e.clientX; my=e.clientY;
+      curDot.style.left = mx+"px";
+      curDot.style.top = my+"px";
+      if(cursorMode==="trail") addTrail(mx,my);
+    });
+
+    function addTrail(x,y){
+      const s = document.createElement("span");
+      s.style.left = x+"px";
+      s.style.top = y+"px";
+      trail.appendChild(s);
+      setTimeout(()=>s.remove(), 260);
+    }
+
+    // ---------- reduce animations ----------
+    function applyReduceAnimations(on){
+      document.body.classList.toggle("noAnim", !!on);
+    }
+
+    // ---------- sounds ----------
+    function pingSound(){
+      if(me.guest) return;
+      if(!me.settings?.sounds) return;
+      if(me.status==="dnd") return;
+      // simple “tick” using WebAudio
+      try{
+        const ctx = new (window.AudioContext||window.webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = 740;
+        g.gain.value = 0.05;
+        o.connect(g); g.connect(ctx.destination);
+        o.start();
+        setTimeout(()=>{ o.stop(); ctx.close(); }, 70);
+      }catch{}
+    }
+
+    // ---------- toasts (minimal; not tutorial) ----------
+    function toast(t1, t2){
+      const wrap = $("toasts");
+      const el = document.createElement("div");
+      el.className = "toast";
+      el.innerHTML = `<div class="t1">${esc(t1)}</div><div class="t2">${esc(t2||"")}</div>`;
+      wrap.appendChild(el);
+      setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translateY(6px)"; }, 2200);
+      setTimeout(()=>el.remove(), 2600);
+    }
+
+    // ---------- modal ----------
+    function openModal(html, small=false){
+      $("overlay").style.display = "flex";
+      $("modalBox").className = "modal" + (small ? " small" : "");
+      $("modalBox").innerHTML = html;
+    }
+    function closeModal(){
+      $("overlay").style.display = "none";
+      $("modalBox").innerHTML = "";
+    }
+    $("overlay").addEventListener("click",(e)=>{
+      if(e.target.id==="overlay") closeModal();
+    });
+
+    // ---------- login ----------
+    const stored = JSON.parse(localStorage.getItem("tonkotsu_session") || "null");
+    $("pwEye").onclick = ()=>{
+      const p = $("lp");
+      p.type = (p.type==="password") ? "text" : "password";
+    };
+
+    function showLogin(){
+      $("loginView").style.display = "flex";
+      $("appView").style.display = "none";
+      $("loginErr").textContent = "";
+    }
+    function showApp(){
+      $("loginView").style.display = "none";
+      $("appView").style.display = "grid";
+    }
+
+    $("loginBtn").onclick = ()=>{
+      $("loginErr").textContent = "";
+      const username = $("lu").value.trim();
+      const password = $("lp").value;
+      socket.emit("login", { username, password, guest:false });
+    };
+    $("guestBtn").onclick = ()=>{
+      $("loginErr").textContent = "";
+      socket.emit("login", { guest:true });
+    };
+
+    function saveSession(){
+      if(me.guest || !me.token) return;
+      localStorage.setItem("tonkotsu_session", JSON.stringify({ token: me.token }));
+    }
+    function clearSession(){
+      localStorage.removeItem("tonkotsu_session");
+    }
+
+    // ---------- dropdown ----------
+    function toggleUserDropdown(force){
+      const dd = $("userDD");
+      const show = (force!==undefined) ? force : (dd.style.display!=="block");
+      dd.style.display = show ? "block" : "none";
+    }
+    $("userChip").onclick = (e)=>{
+      e.stopPropagation();
+      toggleUserDropdown();
+    };
+    window.addEventListener("click", ()=>toggleUserDropdown(false));
+
+    $("ddLogout").onclick = ()=>{
+      toggleUserDropdown(false);
+      clearSession();
+      location.reload();
+    };
+    $("ddSettings").onclick = ()=>{
+      toggleUserDropdown(false);
+      openSettings();
+    };
+    $("ddProfile").onclick = ()=>{
+      toggleUserDropdown(false);
+      openProfile(me.username);
+    };
+
+    // ---------- status / idle ----------
+    let idleTimer = null;
+    function resetIdle(){
+      if(me.guest) return;
+      clearTimeout(idleTimer);
+      if(me.status==="idle") setStatus("online");
+      idleTimer = setTimeout(()=>{
+        if(["online","idle"].includes(me.status)) setStatus("idle");
+      }, 150000); // 2.5 min
+    }
+    ["mousemove","keydown","click","scroll"].forEach(ev=>{
+      window.addEventListener(ev, resetIdle, { passive:true });
+    });
+
+    function setStatus(st){
+      if(me.guest) return;
+      me.status = st;
+      socket.emit("status:set", { status: st });
+      renderOnline();
+    }
+
+    // ---------- sidebar building ----------
+    function statusDot(st){
+      if(st==="online") return "green";
+      if(st==="idle") return "yellow";
+      if(st==="dnd") return "red";
+      return "gray";
+    }
+
+    function buildMessagesList(){
+      const box = $("messagesList");
+      box.innerHTML = "";
+
+      // Global
+      box.appendChild(makeItem({
+        id: "view_global",
+        dot: "gray",
+        name: "Global",
+        sub: "Public chat",
+        active: view.type==="global",
+        onClick: ()=>switchToGlobal()
+      }));
+
+      // DMs (only ones you have; hide if unfriended per requirement)
+      const friendsSet = new Set((social.friends||[]));
+      for(const t of dmThreads){
+        if(!friendsSet.has(t.withUser)) continue; // hide DM thread unless friends
+        box.appendChild(makeItem({
+          id: "dm_"+t.withUser,
+          dot: "gray",
+          name: t.withUser,
+          sub: t.lastText || "DM",
+          active: view.type==="dm" && view.withUser===t.withUser,
+          onClick: ()=>switchToDM(t.withUser)
+        }));
+      }
+
+      // Groups
+      for(const g of groups){
+        box.appendChild(makeItem({
+          id: "gc_"+g.id,
+          dot: "gray",
+          name: g.name,
+          sub: `${g.members.length} members`,
+          active: view.type==="group" && view.groupId===g.id,
+          onClick: ()=>switchToGroup(g.id, g.name)
+        }));
+      }
+
+      $("msgCountHint").textContent = `${(1 + dmThreads.filter(t=> (social.friends||[]).includes(t.withUser)).length + groups.length)}`;
+    }
+
+    function makeItem({id, dot, name, sub, active, onClick}){
+      const el = document.createElement("div");
+      el.className = "item" + (active ? " active" : "");
+      el.id = id;
+      el.innerHTML = `
+        <div class="dot ${dot||"gray"}"></div>
+        <div class="itText">
+          <div class="itName">${esc(name)}</div>
+          <div class="itSub">${esc(sub||"")}</div>
+        </div>
+      `;
+      el.onclick = onClick;
+      el.oncontextmenu = (e)=>{
+        e.preventDefault();
+        // Right-click placeholder: you can extend to add mute later if desired.
+        toast("Options", "Right-click actions can be added here.");
+      };
+      return el;
+    }
+
+    function renderOnline(){
+      const box = $("onlineList");
+      box.innerHTML = "";
+      const visible = onlineUsers.filter(u => u.status !== "invisible");
+      $("onlineCountHint").textContent = `${visible.length}`;
+      for(const u of visible){
+        box.appendChild(makeItem({
+          id:"on_"+u.user,
+          dot: statusDot(u.status),
+          name: u.user,
+          sub: u.status.toUpperCase(),
+          active:false,
+          onClick: ()=>openProfile(u.user)
+        }));
+      }
+    }
+
+    // ---------- chat rendering ----------
+    function mentionize(text){
+      const t = String(text||"");
+      if(!me.username) return esc(t);
+      // highlight @me
+      const re = new RegExp("(@"+me.username.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+"\\b)", "ig");
+      return esc(t).replace(re, `<span class="mention">$1</span>`);
+    }
+
+    function isBlockedUser(user){
+      if(me.guest) return false;
+      return (social.blocked||[]).includes(user);
+    }
+
+    function renderMessage(msg){
+      const wrap = $("chat");
+      const key = `${msg.user}|${msg.ts}|${(msg.text||"").slice(0,16)}`;
+      const blocked = isBlockedUser(msg.user);
+
+      const el = document.createElement("div");
+      el.className = "message" + ((msg.user===me.username) ? " me" : " other");
+
+      const hidden = (msg.text === "__HIDDEN_BY_FILTER__");
+      const safeText = hidden ? "Message hidden by safety filter." : msg.text;
+
+      const userHtml = `<div class="msgUser" data-user="${esc(msg.user)}">${esc(msg.user)}</div>`;
+      const textHtml = `<div class="msgText">${mentionize(safeText)}</div>`;
+      const metaHtml = `<div class="msgMeta">${esc(fmtTime(msg.ts))}</div>`;
+
+      let extra = "";
+      if(blocked){
+        const revealed = revealMap.has(key);
+        extra = `
+          <div class="blockedTag">Blocked</div>
+          ${revealed ? "" : `<div class="revealBtn" data-reveal="${esc(key)}">Reveal</div>`}
+        `;
+        el.innerHTML = userHtml + `<div class="${revealed ? "" : "blockedBlur"}">` + textHtml + metaHtml + `</div>` + extra;
+      }else{
+        el.innerHTML = userHtml + textHtml + metaHtml;
+      }
+
+      // profile open on username click
+      el.querySelector(".msgUser").onclick = ()=>{
+        const u = msg.user;
+        openProfile(u);
+      };
+
+      // reveal blocked
+      const rb = el.querySelector(".revealBtn");
+      if(rb){
+        rb.onclick = ()=>{
+          revealMap.add(key);
+          rebuildView(); // re-render view quickly
+        };
+      }
+
+      wrap.appendChild(el);
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    function setViewHeader(title, meta){
+      $("viewName").textContent = title;
+      $("viewMeta").textContent = meta || "";
+    }
+
+    function clearChat(){
+      $("chat").innerHTML = "";
+    }
+
+    // ---------- cooldown UI ----------
+    function stopCooldownPill(){
+      $("cooldownPill").style.display = "none";
+      $("cooldownPill").classList.remove("bad");
+      if(cooldownTimer) clearInterval(cooldownTimer);
+      cooldownTimer = null;
+    }
+
+    function startCooldownPill(msLeft){
+      const pill = $("cooldownPill");
+      pill.style.display = "inline-flex";
+      pill.classList.remove("bad");
+      pill.textContent = `Cooldown: ${(msLeft/1000).toFixed(1)}s`;
+
+      if(cooldownTimer) clearInterval(cooldownTimer);
+      cooldownTimer = setInterval(()=>{
+        const cd = me.guest ? 5000 : 3000;
+        const left = Math.max(0, cd - (Date.now() - lastSendAt));
+        if(left<=0){ stopCooldownPill(); return; }
+        pill.textContent = `Cooldown: ${(left/1000).toFixed(1)}s`;
+      }, 80);
+    }
+
+    function shakeCooldown(){
+      const pill = $("cooldownPill");
+      pill.style.display = "inline-flex";
+      pill.classList.add("bad","shake");
+      setTimeout(()=>pill.classList.remove("shake"), 320);
+    }
+
+    function canSendNow(){
+      const cd = me.guest ? 5000 : 3000;
+      const diff = Date.now() - lastSendAt;
+      const left = cd - diff;
+      if(left > 0){
+        startCooldownPill(left);
+        shakeCooldown();
+        $("input").classList.add("shake");
+        setTimeout(()=>$("input").classList.remove("shake"), 340);
+        return false;
+      }
+      return true;
+    }
+
+    // ---------- switching views ----------
+    function switchToGlobal(){
+      view = { type:"global", key:"global", label:"Global", groupId:null, withUser:null };
+      rebuildView();
+      socket.emit("requestGlobalHistory");
+    }
+    function switchToDM(withUser){
+      view = { type:"dm", key:"dm:"+withUser, label: withUser, withUser, groupId:null };
+      rebuildView();
+      socket.emit("dm:history", { withUser });
+    }
+    function switchToGroup(groupId, name){
+      view = { type:"group", key:"group:"+groupId, label: name, groupId, withUser:null };
+      rebuildView();
+      socket.emit("group:history", { groupId });
+    }
+
+    function rebuildView(){
+      buildMessagesList();
+      clearChat();
+
+      if(view.type==="global"){
+        setViewHeader("Global", "Public chat");
+      } else if(view.type==="dm"){
+        setViewHeader(view.withUser, "Direct messages");
+      } else {
+        setViewHeader(view.label, "Group chat");
+      }
+    }
+
+    // ---------- sending ----------
+    function sendCurrent(){
+      const text = $("input").value.trim();
+      if(!text) return;
+
+      if(!canSendNow()) return;
+
+      lastSendAt = Date.now();
+      startCooldownPill(me.guest ? 5000 : 3000);
+
+      $("input").value = "";
+      $("input").style.height = "42px";
+
+      if(view.type==="global"){
+        socket.emit("sendGlobal", { text, ts: Date.now() });
+      }else if(view.type==="dm"){
+        socket.emit("dm:send", { to: view.withUser, text });
+      }else if(view.type==="group"){
+        socket.emit("group:send", { groupId: view.groupId, text });
+      }
+    }
+
+    $("sendBtn").onclick = sendCurrent;
+    $("input").addEventListener("keydown", (e)=>{
+      if(e.key==="Enter" && !e.shiftKey){
+        e.preventDefault();
+        sendCurrent();
+      }
+    });
+    $("input").addEventListener("input", ()=>{
+      const ta = $("input");
+      ta.style.height = "42px";
+      ta.style.height = Math.min(110, ta.scrollHeight) + "px";
+    });
+
+    // ---------- inbox ----------
+    function openInbox(){
+      socket.emit("inbox:get");
+    }
+    $("inboxBtn").onclick = openInbox;
+
+    function setBadge(n){
+      const b = $("inboxBadge");
+      if(n>0){
+        b.textContent = String(n);
+        b.style.display = "flex";
+      }else{
+        b.style.display = "none";
+      }
+    }
+
+    // ---------- leaderboard ----------
+    $("leaderBtn").onclick = ()=>{
+      socket.emit("leaderboard:get");
+    };
+
+    // ---------- settings ----------
+    function openSettings(){
+      if(me.guest){
+        openModal(`
+          <div class="modalHead">
+            <div class="mhTitle">Settings</div>
+            <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+          </div>
+          <div class="kv"><div class="k">Guest session</div><div class="v">Settings don’t persist.</div></div>
+          <div class="kv">
+            <div class="k">Cursor</div>
+            <div class="v">
+              <select class="field" id="sCursor">
+                <option value="off">Off</option>
+                <option value="dot">Dynamic</option>
+                <option value="trail" selected>Dynamic + Trail</option>
+              </select>
+            </div>
+          </div>
+          <div class="kv"><div class="k">Reduce animations</div><div class="v"><input type="checkbox" id="sRA"/></div></div>
+          <div class="kv"><div class="k">Sounds</div><div class="v"><input type="checkbox" id="sSnd" checked/></div></div>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button class="miniBtn" id="sSave">Apply</button>
+          </div>
+        `, true);
+
+        setTimeout(()=>{
+          $("sSave").onclick = ()=>{
+            const c = $("sCursor").value;
+            setCursorMode(c);
+            applyReduceAnimations(!!$("sRA").checked);
+            me.settings = me.settings || {};
+            me.settings.cursorMode = c;
+            me.settings.reduceAnimations = !!$("sRA").checked;
+            me.settings.sounds = !!$("sSnd").checked;
+            closeModal();
+          };
+        }, 0);
+        return;
+      }
+
+      const blocked = (social.blocked || []);
+      const blockedHtml = blocked.length
+        ? blocked.map(u=>`<div class="kv"><div class="k">${esc(u)}</div><div class="v"><button class="miniBtn" data-unblock="${esc(u)}">Unblock</button></div></div>`).join("")
+        : `<div class="kv"><div class="k">Blocked users</div><div class="v">None</div></div>`;
+
+      openModal(`
+        <div class="modalHead">
+          <div class="mhTitle">Settings</div>
+          <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+        </div>
+
+        <div class="kv">
+          <div class="k">Cursor</div>
+          <div class="v" style="width:58%;">
+            <select class="field" id="sCursor">
+              <option value="off">Off</option>
+              <option value="dot">Dynamic</option>
+              <option value="trail">Dynamic + Trail</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="kv">
+          <div class="k">Reduce animations</div>
+          <div class="v"><input type="checkbox" id="sRA"/></div>
+        </div>
+
+        <div class="kv">
+          <div class="k">Sounds</div>
+          <div class="v"><input type="checkbox" id="sSnd"/></div>
+        </div>
+
+        <div class="kv">
+          <div class="k">Compactness</div>
+          <div class="v" style="width:58%;">
+            <div class="sliderWrap">
+              <input type="range" id="sDen" min="0.08" max="0.22" step="0.01"/>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:8px;"></div>
+        ${blockedHtml}
+
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="miniBtn" id="sSave">Save</button>
+          <button class="miniBtn" id="sClose">Close</button>
+        </div>
+      `, true);
+
+      setTimeout(()=>{
+        $("sCursor").value = me.settings.cursorMode || "trail";
+        $("sRA").checked = !!me.settings.reduceAnimations;
+        $("sSnd").checked = me.settings.sounds !== false;
+        $("sDen").value = me.settings.density || 0.12;
+
+        $("sClose").onclick = closeModal;
+        $("sSave").onclick = ()=>{
+          const s = {
+            cursorMode: $("sCursor").value,
+            reduceAnimations: !!$("sRA").checked,
+            sounds: !!$("sSnd").checked,
+            density: parseFloat($("sDen").value)
+          };
+          socket.emit("settings:update", s);
+          // apply immediately
+          setCursorMode(s.cursorMode);
+          applyReduceAnimations(s.reduceAnimations);
+          document.documentElement.style.setProperty("--dens", s.density);
+          closeModal();
+        };
+
+        document.querySelectorAll("[data-unblock]").forEach(btn=>{
+          btn.onclick = ()=>{
+            const who = btn.getAttribute("data-unblock");
+            socket.emit("user:unblock", { user: who });
+            toast("Unblocked", who);
+            closeModal();
+          };
+        });
+      }, 0);
+    }
+
+    // ---------- profile ----------
+    function openProfile(user){
+      socket.emit("profile:get", { user });
+    }
+
+    function xpBarHtml(level,xp,next){
+      const pct = Math.max(0, Math.min(1, (xp||0) / (next||1)));
+      return `
+        <div class="kv">
+          <div class="k">Level</div><div class="v">${level}</div>
+        </div>
+        <div class="kv">
+          <div class="k">XP</div>
+          <div class="v" style="width:58%;">
+            <div style="height:10px; border-radius:999px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); overflow:hidden;">
+              <div style="height:100%; width:${(pct*100).toFixed(1)}%; background:rgba(120,180,255,.28); border-right:1px solid rgba(120,180,255,.22);"></div>
+            </div>
+            <div style="margin-top:6px; font-size:11px; color:rgba(234,240,248,.55); font-weight:850;">
+              ${xp}/${next}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ---------- inbox + leaderboard socket handlers ----------
+    socket.on("leaderboard:data", ({ list } = {})=>{
+      const rows = (list||[]).map((u,i)=>`
+        <div class="kv">
+          <div class="k">#${i+1} ${esc(u.user)}</div>
+          <div class="v">Lvl ${u.level} • ${u.messages} msgs</div>
+        </div>
+      `).join("");
+
+      openModal(`
+        <div class="modalHead">
+          <div class="mhTitle">Leaderboard</div>
+          <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+        </div>
+        ${rows || `<div class="kv"><div class="k">No data</div><div class="v">—</div></div>`}
+      `, false);
+    });
+
+    socket.on("inbox:badge", (counts)=>{
+      setBadge(counts?.total || 0);
+    });
+
+    socket.on("inbox:data", ({ items } = {})=>{
+      const list = (items||[]).map(it=>`
+        <div class="kv">
+          <div class="k">${esc(it.text)}</div>
+          <div class="v">${esc(fmtTime(it.ts))}</div>
+        </div>
+      `).join("");
+
+      const actions = me.guest ? "" : `
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="miniBtn" id="clrMent">Clear mentions</button>
+          <button class="miniBtn" id="closeInbox">Close</button>
+        </div>
+      `;
+
+      openModal(`
+        <div class="modalHead">
+          <div class="mhTitle">Inbox</div>
+          <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+        </div>
+        ${list || `<div class="kv"><div class="k">No notifications</div><div class="v">—</div></div>`}
+        ${actions}
+      `, false);
+
+      setTimeout(()=>{
+        const c = $("clrMent");
+        if(c) c.onclick = ()=>{ socket.emit("inbox:clearMentions"); closeModal(); };
+        const x = $("closeInbox");
+        if(x) x.onclick = closeModal;
+      }, 0);
+    });
+
+    // ---------- socket: auth responses ----------
+    socket.on("resumeFail", ()=>{
+      clearSession();
+      showLogin();
+    });
+
+    socket.on("loginError", (msg)=>{
+      $("loginErr").textContent = String(msg || "Login failed.");
+    });
+
+    socket.on("loginSuccess", (payload)=>{
+      me.username = payload.username;
+      me.guest = !!payload.guest;
+      me.token = payload.token || null;
+      me.settings = payload.settings || { density:0.12, cursorMode:"trail", reduceAnimations:false, sounds:true };
+      me.status = payload.status || "online";
+      me.xp = payload.xp || null;
+
+      $("meName").textContent = me.username;
+
+      // apply settings immediately
+      setCursorMode(me.settings.cursorMode || "trail");
+      applyReduceAnimations(!!me.settings.reduceAnimations);
+      document.documentElement.style.setProperty("--dens", me.settings.density || 0.12);
+
+      if(!me.guest) saveSession();
+
+      showApp();
+      rebuildView();
+
+      // populate
+      socket.emit("social:sync");
+      socket.emit("groups:list");
+      socket.emit("dm:list");
+      socket.emit("requestGlobalHistory");
+
+      if(!me.guest) resetIdle();
+    });
+
+    // ---------- socket: settings/status/xp ----------
+    socket.on("settings", (s)=>{
+      me.settings = s;
+      setCursorMode(s.cursorMode || "trail");
+      applyReduceAnimations(!!s.reduceAnimations);
+      document.documentElement.style.setProperty("--dens", s.density || 0.12);
+    });
+
+    socket.on("status:update", ({ status } = {})=>{
+      if(status) me.status = status;
+      renderOnline();
+    });
+
+    socket.on("xp:update", (xp)=>{
+      if(!xp) return;
+      const leveledUp = !!xp.leveledUp;
+      if(me.xp && xp.level > (me.xp.level||1)) {
+        toast("Level up", `You reached level ${xp.level}`);
+      } else if(leveledUp) {
+        toast("Level up", `You reached level ${xp.level}`);
+      }
+      me.xp = { level: xp.level, xp: xp.xp, next: xp.next };
+      lastXpLevel = me.xp.level || lastXpLevel;
+    });
+
+    // ---------- socket: social/groups/online ----------
+    socket.on("social:update", (s)=>{
+      social = s || social;
+      buildMessagesList();
+    });
+
+    socket.on("groups:list", (list)=>{
+      groups = Array.isArray(list) ? list : [];
+      buildMessagesList();
+    });
+
+    socket.on("onlineUsers", (list)=>{
+      onlineUsers = Array.isArray(list) ? list : [];
+      renderOnline();
+    });
+
+    // ---------- socket: DM list / DM messages ----------
+    socket.on("dm:list", (threads)=>{
+      dmThreads = Array.isArray(threads) ? threads : [];
+      buildMessagesList();
+    });
+
+    socket.on("dm:history", ({ withUser, msgs } = {})=>{
+      if(view.type !== "dm" || view.withUser !== withUser) return;
+      clearChat();
+      setViewHeader(withUser, "Direct messages");
+      for(const m of (msgs||[])) renderMessage(m);
+    });
+
+    socket.on("dm:message", ({ from, msg } = {})=>{
+      // update dm list
+      socket.emit("dm:list");
+      if(view.type==="dm" && view.withUser===from){
+        renderMessage(msg);
+      }
+    });
+
+    // ---------- socket: group history/messages ----------
+    socket.on("group:history", ({ groupId, meta, msgs } = {})=>{
+      if(view.type!=="group" || view.groupId!==groupId) return;
+      clearChat();
+      setViewHeader(meta?.name || "Group", "Group chat");
+      for(const m of (msgs||[])) renderMessage(m);
+    });
+
+    socket.on("group:message", ({ groupId, msg } = {})=>{
+      if(view.type==="group" && view.groupId===groupId){
+        renderMessage(msg);
+      }
+    });
+
+    // ---------- global history/messages ----------
+    socket.on("history", (msgs)=>{
+      if(view.type!=="global") return;
+      clearChat();
+      setViewHeader("Global", "Public chat");
+      for(const m of (msgs||[])) renderMessage(m);
+    });
+
+    socket.on("globalMessage", (msg)=>{
+      // if viewing global, render
+      if(view.type==="global") renderMessage(msg);
+    });
+
+    // ---------- profile display ----------
+    socket.on("profile:data", (p)=>{
+      if(!p) return;
+
+      if(p.missing){
+        openModal(`
+          <div class="modalHead">
+            <div class="mhTitle">Profile</div>
+            <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+          </div>
+          <div class="kv"><div class="k">${esc(p.user)}</div><div class="v">Not found</div></div>
+        `, true);
+        return;
+      }
+
+      const isMe = (p.user === me.username);
+      const isGuest = !!p.guest;
+
+      const statusPicker = (!isGuest && isMe) ? `
+        <div class="kv">
+          <div class="k">Status</div>
+          <div class="v" style="width:58%;">
+            <select class="field" id="pStatus">
+              <option value="online">Online</option>
+              <option value="idle">Idle</option>
+              <option value="dnd">Do Not Disturb</option>
+              <option value="invisible">Invisible</option>
+            </select>
+          </div>
+        </div>
+      ` : `
+        <div class="kv"><div class="k">Status</div><div class="v">${esc((p.status||"online").toUpperCase())}</div></div>
+      `;
+
+      const bioBlock = (!isGuest && isMe) ? `
+        <div class="kv">
+          <div class="k">Bio</div>
+          <div class="v" style="width:58%;">
+            <textarea class="field" id="pBio" style="height:78px; resize:none;">${esc(p.bio||"")}</textarea>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="miniBtn" id="bioSave">Save bio</button>
+          <button class="miniBtn" id="bioClose">Close</button>
+        </div>
+      ` : `
+        <div class="kv"><div class="k">Bio</div><div class="v">${esc(p.bio || "—")}</div></div>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="miniBtn" id="bioClose">Close</button>
+        </div>
+      `;
+
+      // actions for others (block/unblock/friend request)
+      let actions = "";
+      if(!isGuest && !isMe && !me.guest){
+        const blocked = (social.blocked||[]).includes(p.user);
+        const isFriend = (social.friends||[]).includes(p.user);
+        actions = `
+          <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+            <button class="miniBtn" id="actFriend">${isFriend ? "Remove friend" : "Add friend"}</button>
+            <button class="miniBtn" id="actBlock" style="color:${blocked ? "rgba(92,220,160,.95)" : "rgba(255,170,170,.95)"};">
+              ${blocked ? "Unblock" : "Block"}
+            </button>
+            <button class="miniBtn" id="actDM">DM</button>
+          </div>
+        `;
+      }
+
+      const xpBlock = (isGuest || !p.level) ? "" : xpBarHtml(p.level, p.xp, p.next);
+
+      openModal(`
+        <div class="modalHead">
+          <div class="mhTitle">Profile</div>
+          <div class="xBtn" onclick="(${closeModal.toString()})()">✕</div>
+        </div>
+
+        <div class="kv"><div class="k">User</div><div class="v">${esc(p.user)}</div></div>
+        ${!isGuest ? `<div class="kv"><div class="k">Created</div><div class="v">${esc(fmtDate(p.createdAt))}</div></div>` : ""}
+        ${!isGuest ? `<div class="kv"><div class="k">Messages</div><div class="v">${esc(p.messages || 0)}</div></div>` : ""}
+        ${statusPicker}
+        ${xpBlock}
+        ${bioBlock}
+        ${actions}
+      `, true);
+
+      setTimeout(()=>{
+        const close = $("bioClose");
+        if(close) close.onclick = closeModal;
+
+        if(isMe && !isGuest){
+          const ps = $("pStatus");
+          if(ps){
+            ps.value = me.status || "online";
+            ps.onchange = ()=> setStatus(ps.value);
+          }
+          const bs = $("bioSave");
+          if(bs){
+            bs.onclick = ()=>{
+              const bio = $("pBio").value || "";
+              socket.emit("bio:set", { bio });
+              toast("Saved", "Bio updated");
+              closeModal();
+            };
+          }
+        }
+
+        const actFriend = $("actFriend");
+        if(actFriend){
+          actFriend.onclick = ()=>{
+            const target = p.user;
+            const isFriend = (social.friends||[]).includes(target);
+            if(isFriend){
+              socket.emit("friend:remove", { user: target });
+              toast("Friend removed", target);
+            }else{
+              socket.emit("friend:request", { to: target });
+              toast("Request sent", target);
+            }
+          };
+        }
+        const actBlock = $("actBlock");
+        if(actBlock){
+          actBlock.onclick = ()=>{
+            const target = p.user;
+            const blocked = (social.blocked||[]).includes(target);
+            if(blocked){
+              socket.emit("user:unblock", { user: target });
+              toast("Unblocked", target);
+            }else{
+              socket.emit("user:block", { user: target });
+              toast("Blocked", target);
+            }
+            closeModal();
+          };
+        }
+        const actDM = $("actDM");
+        if(actDM){
+          actDM.onclick = ()=>{
+            if(!(social.friends||[]).includes(p.user)){
+              toast("DM locked", "Add them as a friend to DM.");
+              return;
+            }
+            closeModal();
+            switchToDM(p.user);
+          };
+        }
+      }, 0);
+    });
+
+    // ---------- errors ----------
+    socket.on("sendError", ({ reason } = {})=>{
+      toast("Error", reason || "Could not send.");
+    });
+
+    // ---------- start ----------
+    showLogin();
+
+    // apply default cursor on login page too
+    setCursorMode("trail");
+
+    if(stored?.token){
+      socket.emit("resume", { token: stored.token });
+    }
+
+    // initial view
+    switchToGlobal();
   </script>
 </body>
 </html>
