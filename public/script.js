@@ -1,14 +1,10 @@
 /* public/script.js
-   - Discord-like compact UI
-   - Working login + create + guest
-   - Session resume token: stays logged in after tab close
-   - Proper profile: XP bar + stats + status dropdown (status change only there)
-   - Settings modal: sounds + mild profanity filter
-   - Leaderboard modal: top users by level/xp
-   - Random user color per refresh (session seed)
-   - DND disables notifications
-   - Idle auto after 3 minutes inactivity (client triggers status:set idle)
-   - Global is a channel item (# global) with no weird dropdown
+   - Inbox is a topbar icon (not inside the dropdown)
+   - Dynamic loading screen transitions (login/guest/logout)
+   - Settings: sounds, profanity mask, friend requests, group invites/requests, custom cursor toggle
+   - Guests: no inbox, cannot be friended, account menu shows Log in instead of Log out, no profile/inbox/leaderboard
+   - Groups: create public/private, discover public groups, join/request private groups, owner tools: cooldown + mute user + mute all
+   - Global cooldown is dynamic (server tells client)
 */
 
 const socket = io();
@@ -25,7 +21,6 @@ const joinBtn = $("joinBtn");
 const guestBtn = $("guestBtn");
 const togglePass = $("togglePass");
 
-const app = $("app");
 const channelList = $("channelList");
 const onlineList = $("onlineList");
 
@@ -35,14 +30,19 @@ const topicSub = $("topicSub");
 const mePill = $("mePill");
 const meName = $("meName");
 const meDot = $("meDot");
-const inboxBadge = $("inboxBadge");
+
+const inboxBtnWrap = $("inboxBtnWrap");
+const inboxBtn = $("inboxBtn");
+const inboxBadgeMini = $("inboxBadgeMini");
 
 const chat = $("chat");
 const messageEl = $("message");
 const sendBtn = $("sendBtn");
 const hintLeft = $("hintLeft");
 const hintRight = $("hintRight");
+
 const createGroupBtn = $("createGroupBtn");
+const discoverGroupsBtn = $("discoverGroupsBtn");
 
 const modalBack = $("modalBack");
 const modalTitle = $("modalTitle");
@@ -61,11 +61,18 @@ let token = localStorage.getItem("tonkotsu_token") || "";
 let me = null;
 let isGuest = false;
 
-let settings = { sounds: true, hideMildProfanity: false };
+let settings = {
+  sounds: true,
+  hideMildProfanity: false,
+  allowFriendRequests: true,
+  allowGroupInvites: true,
+  customCursor: true
+};
+
 let social = { friends: [], incoming: [], outgoing: [], blocked: [] };
 let myStatus = "online";
 
-let inboxCounts = { total: 0, friend: 0, groupInv: 0, ment: 0 };
+let inboxCounts = { total: 0, friend: 0, groupInv: 0, ment: 0, groupReq: 0 };
 let inboxItems = [];
 
 let onlineUsers = [];
@@ -77,6 +84,7 @@ let groupMeta = new Map();    // groupId -> meta
 
 let view = { type: "global", id: null }; // global | dm | group
 let cooldownUntil = 0;
+let cooldownSec = 3;          // server-driven
 let manualStatus = false;
 let lastActivity = Date.now();
 
@@ -147,12 +155,20 @@ function userColor(username){
 }
 
 // ---------- cursor ----------
+function applyCursorSetting(){
+  const on = settings?.customCursor !== false;
+  document.body.style.cursor = on ? "none" : "auto";
+  if (cursor) cursor.style.display = on ? "block" : "none";
+  if (cursor2) cursor2.style.display = on ? "block" : "none";
+}
 (function initCursor(){
   if (!cursor || !cursor2) return;
+
   let x = innerWidth/2, y = innerHeight/2;
   let x2 = x, y2 = y;
 
   function show(on){
+    if (settings?.customCursor === false) return;
     cursor.style.opacity = on ? "1" : "0";
     cursor2.style.opacity = on ? "1" : "0";
   }
@@ -181,7 +197,7 @@ function userColor(username){
       el.addEventListener("mouseenter", ()=> document.body.classList.add("cursorHover"));
       el.addEventListener("mouseleave", ()=> document.body.classList.remove("cursorHover"));
     });
-    document.querySelectorAll("input,textarea,.field").forEach(el=>{
+    document.querySelectorAll("input,textarea,.field,select").forEach(el=>{
       if (el.__t) return;
       el.__t = true;
       el.addEventListener("mouseenter", ()=> document.body.classList.add("cursorText"));
@@ -235,37 +251,76 @@ function closeModal(){
 modalClose?.addEventListener("click", closeModal);
 modalBack?.addEventListener("click", (e)=>{ if(e.target===modalBack) closeModal(); });
 
-// ---------- notifications ----------
+// ---------- satisfying pings ----------
+let audioCtx = null;
+function ensureAudio(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(()=>{});
+  return audioCtx;
+}
 function canNotify(){
   if (myStatus === "dnd") return false;
   if (myStatus === "invisible") return false;
   return true;
 }
-function pingSound(){
+function pingSound(kind="default"){
   if (!settings?.sounds) return;
   if (!canNotify()) return;
+
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 760;
-    g.gain.value = 0.04;
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.start();
-    setTimeout(()=>{ o.stop(); ctx.close(); }, 90);
+    const ctx = ensureAudio();
+    const t0 = ctx.currentTime;
+
+    // pleasant 2-tone + soft click
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, t0);
+    master.gain.exponentialRampToValueAtTime(0.06, t0 + 0.01);
+    master.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+    master.connect(ctx.destination);
+
+    const o1 = ctx.createOscillator();
+    const o2 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    const g2 = ctx.createGain();
+
+    o1.type = "sine";
+    o2.type = "triangle";
+
+    const a = (kind === "mention") ? 880 : (kind === "dm" ? 740 : 780);
+    const b = (kind === "mention") ? 1175 : (kind === "dm" ? 988 : 1046);
+
+    o1.frequency.setValueAtTime(a, t0);
+    o1.frequency.exponentialRampToValueAtTime(a * 0.985, t0 + 0.12);
+
+    o2.frequency.setValueAtTime(b, t0 + 0.02);
+    o2.frequency.exponentialRampToValueAtTime(b * 0.98, t0 + 0.14);
+
+    g1.gain.setValueAtTime(0.0001, t0);
+    g1.gain.exponentialRampToValueAtTime(0.6, t0 + 0.01);
+    g1.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+
+    g2.gain.setValueAtTime(0.0001, t0 + 0.02);
+    g2.gain.exponentialRampToValueAtTime(0.45, t0 + 0.03);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+
+    o1.connect(g1); g1.connect(master);
+    o2.connect(g2); g2.connect(master);
+
+    o1.start(t0);
+    o2.start(t0 + 0.02);
+
+    o1.stop(t0 + 0.2);
+    o2.stop(t0 + 0.2);
   }catch{}
 }
 
 // ---------- cooldown ----------
-function cooldownSeconds(){ return isGuest ? 5 : 3; }
 function canSend(){ return now() >= cooldownUntil; }
 function startCooldown(){
-  cooldownUntil = now() + cooldownSeconds()*1000;
+  cooldownUntil = now() + Math.max(0.8, Number(cooldownSec || 3)) * 1000;
 }
 function updateHints(){
-  hintLeft.textContent = `Cooldown: ${cooldownSeconds()}s`;
+  hintLeft.textContent = `Cooldown: ${Number(cooldownSec || 3).toFixed(1)}s`;
   hintRight.textContent = `Status: ${statusLabel(myStatus)}`;
   meDot.className = `dot ${dotClass(myStatus === "invisible" ? "offline" : myStatus)}`;
 }
@@ -294,7 +349,6 @@ function idleLoop(){
 function setView(type, id=null){
   view = { type, id };
 
-  // title
   topicTitle.classList.remove("clickable");
   topicTitle.onclick = null;
 
@@ -307,7 +361,7 @@ function setView(type, id=null){
   } else if (type === "group"){
     const meta = groupMeta.get(id);
     topicTitle.textContent = meta ? `# ${meta.name}` : "# group";
-    topicSub.textContent = "group chat";
+    topicSub.textContent = meta ? `${meta.privacy || "private"} • group chat` : "group chat";
     topicTitle.classList.add("clickable");
     topicTitle.onclick = ()=> openGroupInfo(id);
   }
@@ -370,7 +424,6 @@ function addMessageToUI({ user, text, ts }, scope){
 
 // ---------- sidebar rendering ----------
 let activeKey = "global";
-
 function setActive(key){
   activeKey = key;
   channelList.querySelectorAll(".item").forEach(el=>{
@@ -390,16 +443,23 @@ function renderChannels(){
     badge: inboxCounts?.ment || 0
   });
 
-  // DMs (cached keys)
+  // DMs
   const dmUsers = Array.from(dmCache.keys()).sort((a,b)=>a.localeCompare(b));
   for (const u of dmUsers){
     items.push({ key:`dm:${u}`, type:"dm", id:u, label:u, sub:"dm", badge:0 });
   }
 
-  // Groups
+  // Groups (only ones you're in)
   const groups = Array.from(groupMeta.values()).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
   for (const g of groups){
-    items.push({ key:`grp:${g.id}`, type:"group", id:g.id, label:g.name, sub:`${(g.members||[]).length} members`, badge:0 });
+    items.push({
+      key:`grp:${g.id}`,
+      type:"group",
+      id:g.id,
+      label:g.name,
+      sub:`${(g.members||[]).length} members • ${g.privacy || "private"}`,
+      badge:0
+    });
   }
 
   channelList.innerHTML = items.map(it=>{
@@ -526,22 +586,40 @@ messageEl.addEventListener("keydown",(e)=>{
   }
 });
 
-// ---------- account menu (Profile / Settings / Inbox / Leaderboard / Logout) ----------
+// ---------- account menu ----------
 function openAccountMenu(){
   if (!me) return;
 
-  const inboxN = Number(inboxCounts?.total || 0);
+  if (isGuest){
+    openModal("Guest", `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
+          <div style="font-weight:950;color:${userColor(me)}">${esc(me)} (Guest)</div>
+          <div class="muted tiny" style="margin-top:6px">Status: <b style="color:var(--text)">${esc(statusLabel(myStatus))}</b></div>
+        </div>
+
+        <button class="btn" id="btnSettings">Settings</button>
+
+        <div style="height:1px;background:rgba(255,255,255,.08);margin:6px 0"></div>
+
+        <button class="btn primary" id="btnLogin">Log in</button>
+      </div>
+    `);
+
+    $("btnSettings").onclick = ()=>{ closeModal(); openSettings(); };
+    $("btnLogin").onclick = ()=>{ showLoading("Returning to login…"); setTimeout(()=> location.reload(), 250); };
+    return;
+  }
 
   openModal("Account", `
     <div style="display:flex;flex-direction:column;gap:10px">
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
-        <div style="font-weight:950;color:${userColor(me)}">${esc(me)}${isGuest ? " (Guest)" : ""}</div>
+        <div style="font-weight:950;color:${userColor(me)}">${esc(me)}</div>
         <div class="muted tiny" style="margin-top:6px">Status: <b style="color:var(--text)">${esc(statusLabel(myStatus))}</b></div>
       </div>
 
       <button class="btn primary" id="btnProfile">Profile</button>
       <button class="btn" id="btnSettings">Settings</button>
-      <button class="btn" id="btnInbox">Inbox ${inboxN>0 ? `<span style="margin-left:6px;background:var(--danger);color:#0b0d10;border-radius:8px;padding:2px 6px;font-weight:950;font-size:11px">${inboxN}</span>` : ""}</button>
       <button class="btn" id="btnLb">Leaderboard</button>
 
       <div style="height:1px;background:rgba(255,255,255,.08);margin:6px 0"></div>
@@ -552,12 +630,25 @@ function openAccountMenu(){
 
   $("btnProfile").onclick = ()=>{ closeModal(); openProfile(me); };
   $("btnSettings").onclick = ()=>{ closeModal(); openSettings(); };
-  $("btnInbox").onclick = ()=>{ closeModal(); openInbox(); };
   $("btnLb").onclick = ()=>{ closeModal(); openLeaderboard(); };
-  $("btnLogout").onclick = ()=>{ showLoading("Logging out…"); setTimeout(()=>{ localStorage.removeItem("tonkotsu_token"); location.reload(); }, 260); };
+  $("btnLogout").onclick = ()=> doLogout();
+}
+
+function doLogout(){
+  showLoading("Logging out…");
+  setTimeout(()=>{
+    localStorage.removeItem("tonkotsu_token");
+    location.reload();
+  }, 260);
 }
 
 mePill.addEventListener("click", openAccountMenu);
+
+// ---------- inbox icon ----------
+inboxBtn?.addEventListener("click", ()=>{
+  if (isGuest) return;
+  openInbox();
+});
 
 // ---------- inbox ----------
 function openInbox(){
@@ -567,29 +658,43 @@ function openInbox(){
   const mentions = inboxItems.filter(x=>x.type==="mention");
   const friendReq = inboxItems.filter(x=>x.type==="friend");
   const groupInv = inboxItems.filter(x=>x.type==="group");
+  const groupReq = inboxItems.filter(x=>x.type==="groupReq");
 
   openModal("Inbox", `
     <div style="display:flex;flex-direction:column;gap:12px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div class="muted tiny">Mentions: <b style="color:var(--text)">${mentions.length}</b> • Friend requests: <b style="color:var(--text)">${friendReq.length}</b> • Group invites: <b style="color:var(--text)">${groupInv.length}</b></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div class="muted tiny">
+          Mentions: <b style="color:var(--text)">${mentions.length}</b> •
+          Friend requests: <b style="color:var(--text)">${friendReq.length}</b> •
+          Group invites: <b style="color:var(--text)">${groupInv.length}</b> •
+          Group requests: <b style="color:var(--text)">${groupReq.length}</b>
+        </div>
         <button class="btn small primary" id="clearMentions">Clear mentions</button>
       </div>
 
-      ${inboxItems.length ? inboxItems.map((it, i)=>{
+      ${inboxItems.length ? inboxItems.map((it)=>{
         const ts = it.ts ? new Date(it.ts).toLocaleString() : "";
         let actions = "";
+
         if (it.type === "friend") {
           actions = `
-            <div style="display:flex;gap:10px">
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
               <button class="btn small primary" data-acc="${esc(it.from)}">Accept</button>
               <button class="btn small" data-dec="${esc(it.from)}">Decline</button>
             </div>
           `;
         } else if (it.type === "group") {
           actions = `
-            <div style="display:flex;gap:10px">
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
               <button class="btn small primary" data-gacc="${esc(it.id)}">Accept</button>
               <button class="btn small" data-gdec="${esc(it.id)}">Decline</button>
+            </div>
+          `;
+        } else if (it.type === "groupReq") {
+          actions = `
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="btn small primary" data-gr-acc="${esc(it.meta?.groupId||"")}" data-gr-from="${esc(it.from||"")}">Approve</button>
+              <button class="btn small" data-gr-dec="${esc(it.meta?.groupId||"")}" data-gr-from="${esc(it.from||"")}">Decline</button>
             </div>
           `;
         } else {
@@ -623,6 +728,18 @@ function openInbox(){
   modalBody.querySelectorAll("[data-gdec]").forEach(b=>{
     b.onclick = ()=> socket.emit("groupInvite:decline", { id: b.getAttribute("data-gdec") });
   });
+  modalBody.querySelectorAll("[data-gr-acc]").forEach(b=>{
+    b.onclick = ()=> socket.emit("groupJoin:approve", {
+      groupId: b.getAttribute("data-gr-acc"),
+      from: b.getAttribute("data-gr-from")
+    });
+  });
+  modalBody.querySelectorAll("[data-gr-dec]").forEach(b=>{
+    b.onclick = ()=> socket.emit("groupJoin:decline", {
+      groupId: b.getAttribute("data-gr-dec"),
+      from: b.getAttribute("data-gr-from")
+    });
+  });
   modalBody.querySelectorAll("[data-openGlobal]").forEach(b=>{
     b.onclick = ()=>{ closeModal(); openGlobal(); };
   });
@@ -630,7 +747,13 @@ function openInbox(){
 
 // ---------- settings ----------
 function openSettings(){
-  const draft = { sounds: settings.sounds !== false, hideMildProfanity: !!settings.hideMildProfanity };
+  const draft = {
+    sounds: settings.sounds !== false,
+    hideMildProfanity: !!settings.hideMildProfanity,
+    allowFriendRequests: settings.allowFriendRequests !== false,
+    allowGroupInvites: settings.allowGroupInvites !== false,
+    customCursor: settings.customCursor !== false
+  };
 
   openModal("Settings", `
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -648,6 +771,30 @@ function openSettings(){
           <div class="muted tiny">Mask common swears</div>
         </div>
         <button class="btn small" id="togFilter">${draft.hideMildProfanity ? "On" : "Off"}</button>
+      </div>
+
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div>
+          <div style="font-weight:950">Friend requests</div>
+          <div class="muted tiny">Allow others to send requests</div>
+        </div>
+        <button class="btn small" id="togFR">${draft.allowFriendRequests ? "On" : "Off"}</button>
+      </div>
+
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div>
+          <div style="font-weight:950">Group invites / requests</div>
+          <div class="muted tiny">Allow group invites and join requests</div>
+        </div>
+        <button class="btn small" id="togGR">${draft.allowGroupInvites ? "On" : "Off"}</button>
+      </div>
+
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div>
+          <div style="font-weight:950">Custom cursor</div>
+          <div class="muted tiny">Disable to use normal cursor</div>
+        </div>
+        <button class="btn small" id="togCursor">${draft.customCursor ? "On" : "Off"}</button>
       </div>
 
       <div class="muted tiny" style="line-height:1.45">
@@ -668,9 +815,26 @@ function openSettings(){
     draft.hideMildProfanity = !draft.hideMildProfanity;
     $("togFilter").textContent = draft.hideMildProfanity ? "On" : "Off";
   };
+  $("togFR").onclick = ()=>{
+    draft.allowFriendRequests = !draft.allowFriendRequests;
+    $("togFR").textContent = draft.allowFriendRequests ? "On" : "Off";
+  };
+  $("togGR").onclick = ()=>{
+    draft.allowGroupInvites = !draft.allowGroupInvites;
+    $("togGR").textContent = draft.allowGroupInvites ? "On" : "Off";
+  };
+  $("togCursor").onclick = ()=>{
+    draft.customCursor = !draft.customCursor;
+    $("togCursor").textContent = draft.customCursor ? "On" : "Off";
+  };
+
   $("saveSettings").onclick = ()=>{
     settings = { ...settings, ...draft };
+    applyCursorSetting();
+
     if (!isGuest) socket.emit("settings:update", settings);
+    else localStorage.setItem("tonkotsu_guest_settings", JSON.stringify(settings));
+
     closeModal();
   };
 }
@@ -682,7 +846,7 @@ function openLeaderboard(){
   socket.emit("leaderboard:get", { limit: 25 });
 }
 
-// ---------- profile (stats + XP bar + status dropdown) ----------
+// ---------- profile ----------
 function friendState(target){
   if (!social) return "none";
   if (social.blocked?.includes(target)) return "blocked";
@@ -695,6 +859,18 @@ function friendState(target){
 function openProfile(user){
   if (!user) return;
   const isSelf = (user === me);
+
+  // guests cannot be friended
+  if (/^Guest\d{4,5}$/.test(user) && user !== me){
+    openModal("Profile", `
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
+        <div style="font-weight:950;font-size:15px;color:${userColor(user)}">${esc(user)}</div>
+        <div class="muted tiny" style="margin-top:6px">Guest profile</div>
+      </div>
+      <div class="muted">Guests can’t be friended or DMed.</div>
+    `);
+    return;
+  }
 
   openModal("Profile", `
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -723,7 +899,7 @@ function openProfile(user){
         </div>
       ` : ``}
 
-      ${(!isGuest && !isSelf && user && !/^Guest/.test(user)) ? `
+      ${(!isGuest && !isSelf && user) ? `
         <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
           <button class="btn" id="btnDM">DM</button>
           <button class="btn primary" id="btnFriend">Add friend</button>
@@ -764,7 +940,6 @@ function openProfile(user){
     else { blockBtn.onclick = ()=> socket.emit("user:block", { user }); }
   }
 
-  // request profile info from server
   modalBody._profileUser = user;
   socket.emit("profile:get", { user });
 }
@@ -776,30 +951,57 @@ function openGroupInfo(groupId){
 
   const members = meta.members || [];
   const owner = meta.owner || "—";
+  const privacy = meta.privacy || "private";
+  const cooldown = Number(meta.cooldownSec || 2.5).toFixed(1);
+
+  const isOwner = (!isGuest && owner === me);
 
   openModal("Group info", `
     <div style="display:flex;flex-direction:column;gap:12px">
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
         <div style="font-weight:950;font-size:14px"># ${esc(meta.name)}</div>
         <div class="muted tiny" style="margin-top:6px">Owner: <b style="color:var(--text)">${esc(owner)}</b></div>
+        <div class="muted tiny">Privacy: <b style="color:var(--text)">${esc(privacy)}</b></div>
         <div class="muted tiny">Members: <b style="color:var(--text)">${members.length}</b> / 200</div>
+        <div class="muted tiny">Cooldown: <b style="color:var(--text)">${esc(cooldown)}s</b></div>
         <div class="muted tiny">ID: ${esc(meta.id)}</div>
       </div>
 
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
         <div style="font-weight:950;margin-bottom:8px">Members</div>
         <div class="scroll" style="max-height:240px">
-          ${members.map(u=>`<div class="tiny muted" style="padding:4px 0;color:${userColor(u)};font-weight:950">${esc(u)}</div>`).join("")}
+          ${members.map(u=>`
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0">
+              <div class="tiny" style="color:${userColor(u)};font-weight:950">${esc(u)}${u===owner ? " (owner)" : ""}</div>
+              ${isOwner && u!==owner ? `
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <button class="btn small" data-mute="${esc(u)}">Mute</button>
+                  <button class="btn small" data-unmute="${esc(u)}">Unmute</button>
+                </div>
+              ` : ``}
+            </div>
+          `).join("")}
         </div>
       </div>
 
-      ${(!isGuest && owner === me) ? `
+      ${isOwner ? `
         <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;flex-direction:column;gap:10px">
           <div style="font-weight:950">Owner tools</div>
-          <div class="muted tiny">Add member (letters/numbers only)</div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+            <div class="muted tiny">Mute all</div>
+            <button class="btn small" id="togMuteAll">${meta.mutedAll ? "On" : "Off"}</button>
+          </div>
+
+          <div class="muted tiny">Group cooldown (seconds, 1.0–10.0)</div>
+          <input class="field" id="gcCooldown" placeholder="2.5" value="${esc(String(Number(meta.cooldownSec || 2.5).toFixed(1)))}" />
+
+          <div class="muted tiny">Invite friend (must be your friend)</div>
           <input class="field" id="addMemberName" placeholder="username" />
-          <div style="display:flex;justify-content:flex-end;gap:10px">
-            <button class="btn primary" id="addMemberBtn">Add</button>
+
+          <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
+            <button class="btn" id="saveGroupSettings">Save</button>
+            <button class="btn primary" id="inviteMemberBtn">Invite</button>
             <button class="btn" id="deleteGroupBtn" style="border-color:rgba(255,77,77,.25)">Delete group</button>
           </div>
         </div>
@@ -815,9 +1017,7 @@ function openGroupInfo(groupId){
 
   $("deleteGroupBtn")?.addEventListener("click", ()=>{
     openModal("Delete group", `
-      <div class="muted" style="line-height:1.45">
-        Delete this group for everyone?
-      </div>
+      <div class="muted" style="line-height:1.45">Delete this group for everyone?</div>
       <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
         <button class="btn" id="cancelDel">Cancel</button>
         <button class="btn primary" id="confirmDel" style="border-color:rgba(255,77,77,.30)">Delete</button>
@@ -827,11 +1027,30 @@ function openGroupInfo(groupId){
     $("confirmDel").onclick = ()=>{ socket.emit("group:delete", { groupId }); closeModal(); };
   });
 
-  $("addMemberBtn")?.addEventListener("click", ()=>{
+  // owner tools
+  $("togMuteAll")?.addEventListener("click", ()=>{
+    socket.emit("group:muteAll", { groupId, on: !meta.mutedAll });
+  });
+
+  $("saveGroupSettings")?.addEventListener("click", ()=>{
+    const v = Number(($("gcCooldown")?.value || "").trim());
+    if (!Number.isFinite(v)) return;
+    socket.emit("group:settings", { groupId, cooldownSec: clamp(v, 1, 10) });
+  });
+
+  $("inviteMemberBtn")?.addEventListener("click", ()=>{
     const name = ($("addMemberName")?.value || "").trim();
     if (!isValidUser(name)) return;
-    socket.emit("group:addMember", { groupId, user: name });
+    socket.emit("group:invite", { groupId, user: name });
     $("addMemberName").value = "";
+  });
+
+  // mute/unmute buttons
+  modalBody.querySelectorAll("[data-mute]").forEach(b=>{
+    b.onclick = ()=> socket.emit("group:muteUser", { groupId, user: b.getAttribute("data-mute"), on: true });
+  });
+  modalBody.querySelectorAll("[data-unmute]").forEach(b=>{
+    b.onclick = ()=> socket.emit("group:muteUser", { groupId, user: b.getAttribute("data-unmute"), on: false });
   });
 }
 
@@ -844,11 +1063,19 @@ createGroupBtn.addEventListener("click", ()=>{
       <div class="muted tiny">Name</div>
       <input class="field" id="gcName" placeholder="group" />
 
-      <div class="muted tiny">Invites (comma separated, up to 199)</div>
-      <input class="field" id="gcInv" placeholder="user1, user2" />
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-weight:950">Public group</div>
+          <div class="muted tiny">Public groups show in Discover</div>
+        </div>
+        <button class="btn small" id="gcPublic">Off</button>
+      </div>
+
+      <div class="muted tiny">Invite friends (comma separated, optional)</div>
+      <input class="field" id="gcInv" placeholder="friend1, friend2" />
 
       <div class="muted tiny" style="line-height:1.45">
-        Group hard cap is 200 members.
+        Group hard cap is 200 members. Invites are limited to your friends.
       </div>
 
       <div style="display:flex;justify-content:flex-end">
@@ -857,16 +1084,30 @@ createGroupBtn.addEventListener("click", ()=>{
     </div>
   `);
 
+  let isPublic = false;
+  $("gcPublic").onclick = ()=>{
+    isPublic = !isPublic;
+    $("gcPublic").textContent = isPublic ? "On" : "Off";
+  };
+
   $("gcCreate").onclick = ()=>{
     const name = ($("gcName")?.value || "").trim();
     const invitesRaw = ($("gcInv")?.value || "").trim();
-    const invites = invitesRaw.split(",").map(s=>s.trim()).filter(Boolean);
-    const unique = Array.from(new Set(invites)).slice(0, 199);
-    if (!unique.length) return;
-    for (const u of unique) if (!isValidUser(u)) return;
+    const invites = invitesRaw ? invitesRaw.split(",").map(s=>s.trim()).filter(Boolean) : [];
+    const unique = Array.from(new Set(invites)).slice(0, 50);
+
+    for (const u of unique) if (!isValidUser(u)) return openModal("Create group", `<div class="muted">Invites must be usernames (letters/numbers only, 4–20).</div>`);
+
     closeModal();
-    socket.emit("group:createRequest", { name, invites: unique });
+    socket.emit("group:createRequest", { name, invites: unique, privacy: isPublic ? "public" : "private" });
   };
+});
+
+// ---------- discover groups ----------
+discoverGroupsBtn?.addEventListener("click", ()=>{
+  if (isGuest) return openModal("Discover", `<div class="muted">Guests can’t discover/join groups.</div>`);
+  showLoading("Discovering groups…");
+  socket.emit("groups:discover");
 });
 
 // ---------- login ----------
@@ -874,18 +1115,32 @@ togglePass?.addEventListener("click", ()=>{
   if (!passwordEl) return;
   passwordEl.type = (passwordEl.type === "password") ? "text" : "password";
 });
+
+function explainLoginFail(u, p){
+  if (!u || u.length < 4) return "Username must be at least 4 characters.";
+  if (!/^[A-Za-z0-9]+$/.test(u)) return "Username can only use letters and numbers (no symbols).";
+  if (u.length > 20) return "Username max is 20 characters.";
+  if (!p || p.length < 4) return "Password must be at least 4 characters.";
+  if (!/^[A-Za-z0-9]+$/.test(p)) return "Password can only use letters and numbers (no symbols).";
+  if (p.length > 32) return "Password max is 32 characters.";
+  return "Login details are invalid.";
+}
+
 joinBtn?.addEventListener("click", ()=>{
   const u = (usernameEl.value || "").trim();
   const p = (passwordEl.value || "").trim();
-  if (!isValidUser(u)) return openModal("Login", `<div class="muted">Username must be letters/numbers only, min 4.</div>`);
-  if (!isValidPass(p)) return openModal("Login", `<div class="muted">Password must be letters/numbers only, min 4.</div>`);
+  if (!isValidUser(u) || !isValidPass(p)) {
+    return openModal("Login", `<div class="muted">${esc(explainLoginFail(u,p))}</div>`);
+  }
   showLoading("Logging in…");
   socket.emit("login", { username: u, password: p, guest: false });
 });
+
 guestBtn?.addEventListener("click", ()=>{
   showLoading("Joining as guest…");
   socket.emit("login", { guest: true });
 });
+
 passwordEl?.addEventListener("keydown",(e)=>{
   if (e.key === "Enter") joinBtn.click();
 });
@@ -899,7 +1154,6 @@ function tryResume(){
 
 // ---------- socket events ----------
 socket.on("resumeFail", ()=>{
-  // do NOT destroy token automatically; user can still login manually
   hideLoading();
 });
 
@@ -910,12 +1164,21 @@ socket.on("loginError", (msg)=>{
 
 socket.on("loginSuccess", (data)=>{
   showLoading("Entering…");
+
   me = data.username;
   isGuest = !!data.guest;
 
-  settings = data.settings || settings;
+  settings = { ...settings, ...(data.settings || {}) };
   social = data.social || social;
   myStatus = data.status || "online";
+
+  // guest settings override (client-only)
+  if (isGuest) {
+    try{
+      const gs = JSON.parse(localStorage.getItem("tonkotsu_guest_settings") || "null");
+      if (gs && typeof gs === "object") settings = { ...settings, ...gs };
+    }catch{}
+  }
 
   if (!isGuest && data.token) {
     token = data.token;
@@ -925,14 +1188,17 @@ socket.on("loginSuccess", (data)=>{
   meName.textContent = me;
   mePill.style.display = "flex";
 
+  // inbox icon only for logged-in accounts
+  if (!isGuest) inboxBtnWrap.style.display = "block";
+  else inboxBtnWrap.style.display = "none";
+
+  applyCursorSetting();
   updateHints();
 
-  // hide login with real transition
   setTimeout(()=>{
     loginOverlay.classList.add("hidden");
     hideLoading();
 
-    // initial content
     setView("global");
     socket.emit("requestGlobalHistory");
 
@@ -940,6 +1206,10 @@ socket.on("loginSuccess", (data)=>{
       socket.emit("social:sync");
       socket.emit("groups:list");
       socket.emit("inbox:get");
+      socket.emit("cooldown:get");
+    } else {
+      // guests still get cooldown info
+      socket.emit("cooldown:get");
     }
 
     renderChannels();
@@ -947,12 +1217,24 @@ socket.on("loginSuccess", (data)=>{
   }, 280);
 });
 
-socket.on("settings", (s)=>{ if (s) settings = s; });
+socket.on("settings", (s)=>{
+  if (s) {
+    settings = { ...settings, ...s };
+    applyCursorSetting();
+  }
+});
 
 socket.on("status:update", ({ status }={})=>{
   if (!status) return;
   myStatus = status;
   updateHints();
+});
+
+socket.on("cooldown:update", ({ seconds }={})=>{
+  if (Number.isFinite(Number(seconds))) {
+    cooldownSec = clamp(Number(seconds), 0.8, 12);
+    updateHints();
+  }
 });
 
 socket.on("onlineUsers", (list)=>{
@@ -969,8 +1251,10 @@ socket.on("onlineUsers", (list)=>{
 socket.on("inbox:badge", (counts)=>{
   inboxCounts = counts || inboxCounts;
   const n = Number(inboxCounts.total || 0);
-  inboxBadge.textContent = String(n);
-  inboxBadge.classList.toggle("show", n > 0);
+  if (inboxBadgeMini){
+    inboxBadgeMini.textContent = String(n);
+    inboxBadgeMini.classList.toggle("show", n > 0);
+  }
   renderChannels(); // mentions badge on global
 });
 
@@ -993,9 +1277,9 @@ socket.on("globalMessage", (msg)=>{
 
   if (view.type === "global") addMessageToUI(msg, "global");
 
-  // ping on mention when not viewing global
-  if (me && view.type !== "global" && typeof msg.text === "string") {
-    if (msg.text.toLowerCase().includes(`@${me.toLowerCase()}`) && canNotify()) pingSound();
+  if (me && typeof msg.text === "string") {
+    const hit = msg.text.toLowerCase().includes(`@${me.toLowerCase()}`);
+    if (hit && canNotify()) pingSound("mention");
   }
 });
 
@@ -1017,7 +1301,7 @@ socket.on("dm:message", ({ from, msg }={})=>{
 
   const inDM = (view.type === "dm" && view.id === from);
   if (inDM) addMessageToUI(msg, "dm");
-  else if (canNotify()) pingSound();
+  else if (canNotify()) pingSound("dm");
 
   renderChannels();
 });
@@ -1025,9 +1309,48 @@ socket.on("dm:message", ({ from, msg }={})=>{
 socket.on("groups:list", (list)=>{
   groupMeta.clear();
   (Array.isArray(list) ? list : []).forEach(g=>{
-    groupMeta.set(g.id, { id:g.id, name:g.name, owner:g.owner, members:g.members || [] });
+    groupMeta.set(g.id, {
+      id:g.id,
+      name:g.name,
+      owner:g.owner,
+      members:g.members || [],
+      privacy: g.privacy || "private",
+      cooldownSec: g.cooldownSec ?? 2.5,
+      mutedAll: !!g.mutedAll
+    });
   });
   renderChannels();
+});
+
+socket.on("groups:discover:data", ({ items }={})=>{
+  hideLoading();
+  const list = Array.isArray(items) ? items : [];
+  openModal("Discover groups", `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="muted tiny">Public groups you can join</div>
+      ${list.length ? list.map(g=>{
+        const inIt = groupMeta.has(g.id);
+        return `
+          <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;gap:12px;align-items:center">
+            <div style="min-width:0">
+              <div style="font-weight:950"># ${esc(g.name)}</div>
+              <div class="muted tiny" style="margin-top:4px">${esc(g.members)} members • owner: ${esc(g.owner)}</div>
+            </div>
+            ${inIt ? `<button class="btn small" disabled>Joined</button>` : `<button class="btn small primary" data-join="${esc(g.id)}">Join</button>`}
+          </div>
+        `;
+      }).join("") : `<div class="muted">No public groups found.</div>`}
+    </div>
+  `);
+
+  modalBody.querySelectorAll("[data-join]").forEach(b=>{
+    b.onclick = ()=>{
+      const gid = b.getAttribute("data-join");
+      socket.emit("group:joinPublic", { groupId: gid });
+      b.textContent = "Joining…";
+      b.disabled = true;
+    };
+  });
 });
 
 socket.on("group:history", ({ groupId, meta, msgs }={})=>{
@@ -1049,7 +1372,7 @@ socket.on("group:message", ({ groupId, msg }={})=>{
 
   const inGroup = (view.type === "group" && view.id === groupId);
   if (inGroup) addMessageToUI(msg, "group");
-  else if (canNotify()) pingSound();
+  else if (canNotify()) pingSound("default");
 
   renderChannels();
 });
@@ -1059,6 +1382,7 @@ socket.on("group:meta", ({ groupId, meta }={})=>{
   groupMeta.set(groupId, meta);
   if (view.type === "group" && view.id === groupId) {
     topicTitle.textContent = `# ${meta.name}`;
+    topicSub.textContent = `${meta.privacy || "private"} • group chat`;
     topicTitle.classList.add("clickable");
     topicTitle.onclick = ()=> openGroupInfo(groupId);
   }
@@ -1079,7 +1403,7 @@ socket.on("group:deleted", ({ groupId }={})=>{
   socket.emit("groups:list");
 });
 
-// profile data returns stats + xp bar info
+// profile data
 socket.on("profile:data", (p)=>{
   const target = modalBody?._profileUser;
   if (!target || !p || p.user !== target) return;
@@ -1115,15 +1439,8 @@ socket.on("profile:data", (p)=>{
     if (fill) setTimeout(()=>{ fill.style.width = `${Math.round(pct*100)}%`; }, 50);
   }
 
-  // if self: sync dropdown with server status
   const sel = $("statusSelect");
   if (sel && target === me) sel.value = (st === "invisible") ? "invisible" : st;
-});
-
-// stats update for self after XP awards
-socket.on("me:stats", (s)=>{
-  // update hints or allow profile refresh
-  // (profile modal updates when you reopen it; this keeps the app consistent)
 });
 
 // leaderboard data
@@ -1168,6 +1485,6 @@ socket.on("sendError", ({ reason }={})=>{
 setView("global");
 renderChannels();
 renderOnline();
+applyCursorSetting();
 updateHints();
-
 tryResume();
