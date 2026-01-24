@@ -1,6 +1,6 @@
 {
-  "name": "tonkotsu-online",
-  "version": "1.0.0",
+  "name": "tonkotsu-chat",
+  "version": "2.0.0",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
