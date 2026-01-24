@@ -1,15 +1,10 @@
 // server.js — Discord-like compact chat backend (Socket.IO)
-// - Account create/login: username+password alnum only, min 4
-// - Session resume token (stay logged in across tab close)
-// - Status: online/idle/dnd/invisible
-// - Idle auto on client (3 min) sets status=idle; DND disables notifications client-side
-// - Profile stats: level, xp, messages, created
-// - XP + leveling: grows with level (increasing curve)
-// - Global, DM, Group chats
-// - Mentions @user -> inbox mention item and badge
-// - Friends + friend requests -> inbox
-// - Groups with cap 200 members; group info/meta
-// - Leaderboard: top XP
+// Additions:
+// - Dynamic global cooldown per user (server driven)
+// - Settings: allowFriendRequests, allowGroupInvites, customCursor
+// - Inbox types: mention, friend, group(invite), groupReq(join request)
+// - Groups: public/private, discover public groups, join public, request private join
+// - Group owner tools: cooldownSec, mute user, mute all (with allowlist), invites only to friends
 
 const fs = require("fs");
 const path = require("path");
@@ -76,11 +71,9 @@ function verifyPassword(password, record) {
   }
 }
 
-// XP curve: grows with level (increasing requirement)
+// XP curve
 function xpNeededForNext(level) {
   const L = Math.max(1, Number(level) || 1);
-  // Increasing curve; gets longer as you level:
-  // base + linear + quadratic component
   return Math.floor(120 + (L * 65) + (L * L * 12));
 }
 
@@ -92,17 +85,39 @@ function ensureUser(username) {
       pass: null,
       token: null,
       status: "online",
-      settings: { sounds: true, hideMildProfanity: false },
+      settings: {
+        sounds: true,
+        hideMildProfanity: false,
+        allowFriendRequests: true,
+        allowGroupInvites: true,
+        customCursor: true
+      },
       social: { friends: [], incoming: [], outgoing: [], blocked: [] },
       inbox: [],
-      stats: { messages: 0, xp: 0, level: 1 }
+      stats: { messages: 0, xp: 0, level: 1 },
+      dm: {}
     };
   }
-  // ensure sub-objects
-  users[username].settings ||= { sounds: true, hideMildProfanity: false };
+
+  users[username].settings ||= {
+    sounds: true,
+    hideMildProfanity: false,
+    allowFriendRequests: true,
+    allowGroupInvites: true,
+    customCursor: true
+  };
   users[username].social ||= { friends: [], incoming: [], outgoing: [], blocked: [] };
   users[username].inbox ||= [];
   users[username].stats ||= { messages: 0, xp: 0, level: 1 };
+  users[username].dm ||= {};
+
+  // fill missing settings fields
+  users[username].settings.sounds = (users[username].settings.sounds !== false);
+  users[username].settings.hideMildProfanity = !!users[username].settings.hideMildProfanity;
+  users[username].settings.allowFriendRequests = (users[username].settings.allowFriendRequests !== false);
+  users[username].settings.allowGroupInvites = (users[username].settings.allowGroupInvites !== false);
+  users[username].settings.customCursor = (users[username].settings.customCursor !== false);
+
   return users[username];
 }
 
@@ -114,13 +129,14 @@ function addInboxItem(toUser, item) {
 
 function countInbox(u) {
   const items = u.inbox || [];
-  let friend = 0, groupInv = 0, ment = 0;
+  let friend = 0, groupInv = 0, ment = 0, groupReq = 0;
   for (const it of items) {
     if (it.type === "friend") friend++;
     else if (it.type === "group") groupInv++;
     else if (it.type === "mention") ment++;
+    else if (it.type === "groupReq") groupReq++;
   }
-  return { total: friend + groupInv + ment, friend, groupInv, ment };
+  return { total: friend + groupInv + ment + groupReq, friend, groupInv, ment, groupReq };
 }
 
 function safeUserPublic(u) {
@@ -143,7 +159,7 @@ function pushGlobalMessage(msg) {
   writeJson(GLOBAL_FILE, globalHistory);
 }
 
-// DM store: in users[u].dm[other] arrays (bounded)
+// DM store
 function ensureDMStore(userA, userB) {
   const a = ensureUser(userA);
   a.dm ||= {};
@@ -159,7 +175,7 @@ function pushDM(a, b, msg) {
   if (arrB.length > 260) arrB.shift();
 }
 
-// XP award (global/dm/group)
+// XP award
 function awardXP(username, amount) {
   if (!users[username]) return;
   if (isGuestName(username)) return;
@@ -179,8 +195,29 @@ function awardXP(username, amount) {
 }
 
 // Groups
+function ensureGroupDefaults(g){
+  g.privacy ||= "private"; // private|public
+  g.cooldownSec = Number.isFinite(Number(g.cooldownSec)) ? Number(g.cooldownSec) : 2.5;
+  g.mutedAll = !!g.mutedAll;
+  g.mutedUsers ||= [];
+  g.unmutedWhileMutedAll ||= [];
+  g.joinRequests ||= []; // [{from, ts}]
+  g.invites ||= [];      // [{id,to,from,ts}]
+  g.messages ||= [];
+  g.members ||= [];
+  return g;
+}
 function groupPublic(g) {
-  return { id: g.id, name: g.name, owner: g.owner, members: g.members || [] };
+  g = ensureGroupDefaults(g);
+  return {
+    id: g.id,
+    name: g.name,
+    owner: g.owner,
+    members: g.members || [],
+    privacy: g.privacy || "private",
+    cooldownSec: g.cooldownSec,
+    mutedAll: !!g.mutedAll
+  };
 }
 
 // Online tracking
@@ -192,7 +229,6 @@ function setOnline(user, socketId) {
   socketsByUser.get(user).add(socketId);
   userBySocket.set(socketId, user);
 }
-
 function setOffline(socketId) {
   const user = userBySocket.get(socketId);
   if (!user) return;
@@ -203,26 +239,24 @@ function setOffline(socketId) {
     if (set.size === 0) socketsByUser.delete(user);
   }
 }
-
 function emitToUser(user, evt, payload) {
   const set = socketsByUser.get(user);
   if (!set) return;
   for (const sid of set) io.to(sid).emit(evt, payload);
 }
-
 function broadcastOnlineUsers() {
   const list = [];
   for (const [user] of socketsByUser.entries()) {
     const u = users[user];
     if (!u) continue;
-    if (u.status === "invisible") continue; // invisible does not appear online
+    if (u.status === "invisible") continue;
     list.push(safeUserPublic(u));
   }
   list.sort((a, b) => a.user.localeCompare(b.user));
   io.emit("onlineUsers", list);
 }
 
-// Leaderboard (top xp)
+// Leaderboard
 function getLeaderboard(limit = 25) {
   const arr = Object.values(users)
     .filter(u => u && u.pass && !isGuestName(u.user))
@@ -233,9 +267,38 @@ function getLeaderboard(limit = 25) {
       next: xpNeededForNext(u.stats?.level || 1),
       messages: u.stats?.messages || 0
     }));
-  // sort by level desc, then xp desc
   arr.sort((a, b) => (b.level - a.level) || (b.xp - a.xp) || a.user.localeCompare(b.user));
   return arr.slice(0, Math.max(5, Math.min(100, limit)));
+}
+
+// ----- dynamic cooldown (global) -----
+const globalRate = new Map(); // user -> { nextAllowed, recent: [ts...] }
+function baseCooldownForUser(username){
+  if (!users[username]) return 3;
+  if (isGuestName(username)) return 5;
+
+  const lvl = Number(users[username].stats?.level || 1);
+  // higher level => slightly lower base, floor 1.5
+  return Math.max(1.5, 3 - (lvl - 1) * 0.05);
+}
+function currentCooldownForUser(username){
+  const base = baseCooldownForUser(username);
+  const r = globalRate.get(username);
+  if (!r) return base;
+
+  // penalty if too many msgs in last 10s
+  const cutoff = now() - 10000;
+  r.recent = (r.recent || []).filter(t => t >= cutoff);
+
+  const n = r.recent.length;
+  const penalty = n >= 8 ? 3.0 : (n >= 6 ? 2.0 : (n >= 4 ? 1.0 : 0));
+  return Math.min(12, base + penalty);
+}
+function touchGlobalSend(username){
+  const t = now();
+  const r = globalRate.get(username) || { nextAllowed: 0, recent: [] };
+  r.recent.push(t);
+  globalRate.set(username, r);
 }
 
 // Express / Socket.IO
@@ -256,6 +319,11 @@ io.on("connection", (socket) => {
     return requireAuth() && !isGuestName(authedUser);
   }
 
+  function sendCooldown(){
+    if (!authedUser) return;
+    socket.emit("cooldown:update", { seconds: currentCooldownForUser(authedUser) });
+  }
+
   function sendInitSuccess(u, { guest = false } = {}) {
     authedUser = u.user;
     setOnline(authedUser, socket.id);
@@ -264,7 +332,6 @@ io.on("connection", (socket) => {
       u.status = "online";
       u.token = null;
     } else {
-      // keep saved status; if missing, default online
       u.status ||= "online";
       u.token ||= newToken();
     }
@@ -285,6 +352,8 @@ io.on("connection", (socket) => {
       }
     });
 
+    sendCooldown();
+
     if (!guest) {
       socket.emit("inbox:badge", countInbox(u));
       socket.emit("inbox:data", { items: u.inbox || [] });
@@ -300,6 +369,12 @@ io.on("connection", (socket) => {
     const found = Object.values(users).find(u => u && u.token === tok);
     if (!found) return socket.emit("resumeFail");
     sendInitSuccess(found, { guest: false });
+  });
+
+  // cooldown
+  socket.on("cooldown:get", () => {
+    if (!requireAuth()) return;
+    sendCooldown();
   });
 
   // Login or create
@@ -331,7 +406,6 @@ io.on("connection", (socket) => {
     const rec = ensureUser(u);
 
     if (!rec.pass) {
-      // create account
       rec.pass = createPasswordRecord(p);
       rec.token = newToken();
       rec.status = "online";
@@ -343,7 +417,6 @@ io.on("connection", (socket) => {
       return socket.emit("loginError", "Incorrect password.");
     }
 
-    // successful login: rotate token
     rec.token = newToken();
     rec.status ||= "online";
     persistAll();
@@ -373,9 +446,21 @@ io.on("connection", (socket) => {
   socket.on("settings:update", (s) => {
     if (!requireNonGuest()) return;
     const u = users[authedUser];
-    u.settings ||= { sounds: true, hideMildProfanity: false };
+
+    u.settings ||= {
+      sounds: true,
+      hideMildProfanity: false,
+      allowFriendRequests: true,
+      allowGroupInvites: true,
+      customCursor: true
+    };
+
     if (typeof s?.sounds === "boolean") u.settings.sounds = s.sounds;
     if (typeof s?.hideMildProfanity === "boolean") u.settings.hideMildProfanity = s.hideMildProfanity;
+    if (typeof s?.allowFriendRequests === "boolean") u.settings.allowFriendRequests = s.allowFriendRequests;
+    if (typeof s?.allowGroupInvites === "boolean") u.settings.allowGroupInvites = s.allowGroupInvites;
+    if (typeof s?.customCursor === "boolean") u.settings.customCursor = s.customCursor;
+
     persistAll();
     socket.emit("settings", u.settings);
   });
@@ -424,7 +509,6 @@ io.on("connection", (socket) => {
     meRec.social.blocked ||= [];
     if (!meRec.social.blocked.includes(target)) meRec.social.blocked.push(target);
 
-    // remove friend links
     meRec.social.friends = (meRec.social.friends || []).filter(x => x !== target);
     meRec.social.incoming = (meRec.social.incoming || []).filter(x => x !== target);
     meRec.social.outgoing = (meRec.social.outgoing || []).filter(x => x !== target);
@@ -452,6 +536,7 @@ io.on("connection", (socket) => {
     const meRec = users[authedUser];
     const tRec = users[target];
 
+    if (tRec.settings?.allowFriendRequests === false) return socket.emit("sendError", { reason: "User has friend requests disabled." });
     if ((meRec.social.blocked || []).includes(target)) return socket.emit("sendError", { reason: "Unblock user first." });
     if ((tRec.social.blocked || []).includes(authedUser)) return socket.emit("sendError", { reason: "Cannot send request." });
 
@@ -553,10 +638,24 @@ io.on("connection", (socket) => {
     const t = String(text || "").trim();
     if (!t || t.length > 1200) return;
 
+    // dynamic cooldown
+    const r = globalRate.get(authedUser) || { nextAllowed: 0, recent: [] };
+    globalRate.set(authedUser, r);
+
+    const cd = currentCooldownForUser(authedUser);
+    if (now() < (r.nextAllowed || 0)) {
+      const left = Math.max(0, (r.nextAllowed - now()) / 1000);
+      sendCooldown();
+      return socket.emit("sendError", { reason: `Cooldown active (${left.toFixed(1)}s left).` });
+    }
+
+    r.nextAllowed = now() + cd * 1000;
+    touchGlobalSend(authedUser);
+    sendCooldown();
+
     const msg = { user: authedUser, text: t, ts: now() };
     pushGlobalMessage(msg);
 
-    // Award XP: global
     const xpInfo = awardXP(authedUser, 6);
     if (xpInfo) emitToUser(authedUser, "me:stats", xpInfo);
 
@@ -612,7 +711,6 @@ io.on("connection", (socket) => {
     pushDM(authedUser, other, msg);
     persistAll();
 
-    // Award XP: DM
     const xpInfo = awardXP(authedUser, 4);
     if (xpInfo) emitToUser(authedUser, "me:stats", xpInfo);
 
@@ -639,40 +737,78 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Groups
+  // Groups list (joined)
   socket.on("groups:list", () => {
     if (!requireNonGuest()) return;
     const list = Object.values(groups)
+      .map(ensureGroupDefaults)
       .filter(g => Array.isArray(g.members) && g.members.includes(authedUser))
       .map(groupPublic)
       .sort((a, b) => a.name.localeCompare(b.name));
     socket.emit("groups:list", list);
   });
 
-  socket.on("group:createRequest", ({ name, invites }) => {
+  // Discover public groups
+  socket.on("groups:discover", () => {
+    if (!requireNonGuest()) return;
+    const items = Object.values(groups)
+      .map(ensureGroupDefaults)
+      .filter(g => g.privacy === "public")
+      .map(g => ({
+        id: g.id,
+        name: g.name,
+        owner: g.owner,
+        members: (g.members || []).length
+      }))
+      .sort((a,b)=> (b.members - a.members) || a.name.localeCompare(b.name))
+      .slice(0, 80);
+
+    socket.emit("groups:discover:data", { items });
+  });
+
+  // Create group
+  socket.on("group:createRequest", ({ name, invites, privacy }) => {
     if (!requireNonGuest()) return;
 
     const groupName = String(name || "").trim() || "group";
+    const priv = (privacy === "public") ? "public" : "private";
+
     const rawInv = Array.isArray(invites) ? invites : [];
-    const uniq = Array.from(new Set(rawInv.map(x => String(x || "").trim()).filter(Boolean))).slice(0, 199);
+    const uniq = Array.from(new Set(rawInv.map(x => String(x || "").trim()).filter(Boolean))).slice(0, 50);
+
+    // invites must be valid, real, non-guest, AND friends with creator
+    const meRec = users[authedUser];
+    const myFriends = new Set(meRec.social?.friends || []);
 
     for (const u of uniq) {
       if (!isValidUser(u) || !users[u] || isGuestName(u)) return socket.emit("sendError", { reason: "Invalid invite list." });
+      if (!myFriends.has(u)) return socket.emit("sendError", { reason: "You can only invite friends to a group." });
+      if (users[u].settings?.allowGroupInvites === false) return socket.emit("sendError", { reason: `User ${u} has group invites disabled.` });
     }
 
     const gid = newId("grp");
-    groups[gid] = {
+    groups[gid] = ensureGroupDefaults({
       id: gid,
       name: groupName.slice(0, 32),
       owner: authedUser,
+      privacy: priv,
       members: [authedUser],
-      invites: uniq.map(u => ({ id: newId("inv"), to: u, from: authedUser, ts: now() })),
+      invites: [],
       createdAt: now(),
-      messages: []
-    };
+      messages: [],
+      joinRequests: [],
+      cooldownSec: 2.5,
+      mutedAll: false,
+      mutedUsers: [],
+      unmutedWhileMutedAll: []
+    });
 
-    for (const inv of groups[gid].invites) {
-      addInboxItem(inv.to, {
+    // send invites into inbox (invite id is used for accept/decline)
+    for (const u of uniq) {
+      const inv = { id: newId("inv"), to: u, from: authedUser, ts: now() };
+      groups[gid].invites.push(inv);
+
+      addInboxItem(u, {
         id: inv.id,
         type: "group",
         from: authedUser,
@@ -680,22 +816,45 @@ io.on("connection", (socket) => {
         ts: inv.ts,
         meta: { groupId: gid, name: groups[gid].name }
       });
-      const rec = users[inv.to];
-      emitToUser(inv.to, "inbox:badge", countInbox(rec));
-      emitToUser(inv.to, "inbox:data", { items: rec.inbox });
+
+      const rec = users[u];
+      emitToUser(u, "inbox:badge", countInbox(rec));
+      emitToUser(u, "inbox:data", { items: rec.inbox });
     }
 
     persistAll();
-    socket.emit("groups:list", Object.values(groups).filter(g => g.members.includes(authedUser)).map(groupPublic));
+    socket.emit("groups:list", Object.values(groups).map(ensureGroupDefaults).filter(g => g.members.includes(authedUser)).map(groupPublic));
     socket.emit("group:meta", { groupId: gid, meta: groupPublic(groups[gid]) });
   });
 
+  // Join public group
+  socket.on("group:joinPublic", ({ groupId }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = groups[gid];
+    if (!g) return;
+    ensureGroupDefaults(g);
+
+    if (g.privacy !== "public") return socket.emit("sendError", { reason: "This group is not public." });
+    if ((g.members || []).length >= 200) return socket.emit("sendError", { reason: "Group is full (200 cap)." });
+
+    if (!g.members.includes(authedUser)) g.members.push(authedUser);
+
+    persistAll();
+    const meta = groupPublic(g);
+    for (const m of g.members) emitToUser(m, "group:meta", { groupId: g.id, meta });
+
+    socket.emit("groups:list", Object.values(groups).map(ensureGroupDefaults).filter(x => x.members.includes(authedUser)).map(groupPublic));
+  });
+
+  // Accept/decline group invite
   socket.on("groupInvite:accept", ({ id }) => {
     if (!requireNonGuest()) return;
     const inviteId = String(id || "");
     let gFound = null;
 
     for (const g of Object.values(groups)) {
+      ensureGroupDefaults(g);
       const inv = (g.invites || []).find(x => x.id === inviteId && x.to === authedUser);
       if (inv) { gFound = g; break; }
     }
@@ -716,7 +875,7 @@ io.on("connection", (socket) => {
 
     socket.emit("inbox:badge", countInbox(meRec));
     socket.emit("inbox:data", { items: meRec.inbox });
-    socket.emit("groups:list", Object.values(groups).filter(g => g.members.includes(authedUser)).map(groupPublic));
+    socket.emit("groups:list", Object.values(groups).map(ensureGroupDefaults).filter(g => g.members.includes(authedUser)).map(groupPublic));
   });
 
   socket.on("groupInvite:decline", ({ id }) => {
@@ -725,6 +884,7 @@ io.on("connection", (socket) => {
 
     let gFound = null;
     for (const g of Object.values(groups)) {
+      ensureGroupDefaults(g);
       const inv = (g.invites || []).find(x => x.id === inviteId && x.to === authedUser);
       if (inv) { gFound = g; break; }
     }
@@ -739,23 +899,52 @@ io.on("connection", (socket) => {
     socket.emit("inbox:data", { items: meRec.inbox });
   });
 
+  // Group history
   socket.on("group:history", ({ groupId }) => {
     if (!requireNonGuest()) return;
     const gid = String(groupId || "");
     const g = groups[gid];
-    if (!g || !g.members.includes(authedUser)) return;
-    g.messages ||= [];
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (!g.members.includes(authedUser)) return;
+
     socket.emit("group:history", { groupId: gid, meta: groupPublic(g), msgs: g.messages });
   });
+
+  // group:send with owner controls
+  const groupRate = new Map(); // key `${gid}:${user}` -> nextAllowed
+  function groupKey(gid, user){ return `${gid}:${user}`; }
 
   socket.on("group:send", ({ groupId, text }) => {
     if (!requireNonGuest()) return;
     const gid = String(groupId || "");
     const g = groups[gid];
-    if (!g || !g.members.includes(authedUser)) return;
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (!g.members.includes(authedUser)) return;
 
     const t = String(text || "").trim();
     if (!t || t.length > 1200) return;
+
+    // mute rules
+    if (g.owner !== authedUser) {
+      if ((g.mutedUsers || []).includes(authedUser)) return socket.emit("sendError", { reason: "You are muted in this group." });
+
+      if (g.mutedAll) {
+        const allow = (g.unmutedWhileMutedAll || []).includes(authedUser);
+        if (!allow) return socket.emit("sendError", { reason: "Group is muted by the owner." });
+      }
+    }
+
+    // group cooldown
+    const cd = clamp(Number(g.cooldownSec || 2.5), 1, 10);
+    const k = groupKey(gid, authedUser);
+    const nextAllowed = groupRate.get(k) || 0;
+    if (now() < nextAllowed) {
+      const left = ((nextAllowed - now())/1000).toFixed(1);
+      return socket.emit("sendError", { reason: `Group cooldown active (${left}s left).` });
+    }
+    groupRate.set(k, now() + cd*1000);
 
     g.messages ||= [];
     const msg = { user: authedUser, text: t, ts: now() };
@@ -764,7 +953,6 @@ io.on("connection", (socket) => {
 
     persistAll();
 
-    // Award XP: group
     const xpInfo = awardXP(authedUser, 5);
     if (xpInfo) emitToUser(authedUser, "me:stats", xpInfo);
 
@@ -790,33 +978,115 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("group:addMember", ({ groupId, user }) => {
+  // Owner: set group settings (cooldown)
+  socket.on("group:settings", ({ groupId, cooldownSec }) => {
     if (!requireNonGuest()) return;
     const gid = String(groupId || "");
     const g = groups[gid];
     if (!g) return;
+    ensureGroupDefaults(g);
     if (g.owner !== authedUser) return;
 
-    const target = String(user || "").trim();
-    if (!isValidUser(target) || !users[target] || isGuestName(target)) return socket.emit("sendError", { reason: "User not found." });
+    const v = Number(cooldownSec);
+    if (!Number.isFinite(v)) return;
+    g.cooldownSec = Math.max(1, Math.min(10, v));
 
-    if (g.members.includes(target)) return;
-    if (g.members.length >= 200) return socket.emit("sendError", { reason: "Group is full (200 cap)." });
+    persistAll();
+    const meta = groupPublic(g);
+    for (const m of g.members) emitToUser(m, "group:meta", { groupId: gid, meta });
+  });
 
-    g.members.push(target);
+  // Owner: mute all
+  socket.on("group:muteAll", ({ groupId, on }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = groups[gid];
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (g.owner !== authedUser) return;
+
+    g.mutedAll = !!on;
     persistAll();
 
     const meta = groupPublic(g);
     for (const m of g.members) emitToUser(m, "group:meta", { groupId: gid, meta });
-
-    emitToUser(target, "groups:list", Object.values(groups).filter(x => x.members.includes(target)).map(groupPublic));
   });
 
+  // Owner: mute/unmute a user
+  socket.on("group:muteUser", ({ groupId, user, on }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const target = String(user || "").trim();
+    const g = groups[gid];
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (g.owner !== authedUser) return;
+    if (!g.members.includes(target)) return;
+    if (target === g.owner) return;
+
+    g.mutedUsers ||= [];
+    g.unmutedWhileMutedAll ||= [];
+
+    if (on) {
+      if (!g.mutedUsers.includes(target)) g.mutedUsers.push(target);
+    } else {
+      g.mutedUsers = g.mutedUsers.filter(x => x !== target);
+      // if mutedAll is ON, unmuting effectively allows them
+      if (g.mutedAll && !g.unmutedWhileMutedAll.includes(target)) g.unmutedWhileMutedAll.push(target);
+      if (!g.mutedAll) g.unmutedWhileMutedAll = g.unmutedWhileMutedAll.filter(x => x !== target);
+    }
+
+    persistAll();
+    const meta = groupPublic(g);
+    for (const m of g.members) emitToUser(m, "group:meta", { groupId: gid, meta });
+  });
+
+  // Owner: invite member (must be friend, and target allows group invites)
+  socket.on("group:invite", ({ groupId, user }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const target = String(user || "").trim();
+    const g = groups[gid];
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (g.owner !== authedUser) return;
+
+    if (!isValidUser(target) || !users[target] || isGuestName(target)) return socket.emit("sendError", { reason: "User not found." });
+    if (g.members.includes(target)) return socket.emit("sendError", { reason: "User already in group." });
+    if ((g.members || []).length >= 200) return socket.emit("sendError", { reason: "Group is full (200 cap)." });
+
+    const meRec = users[authedUser];
+    const myFriends = new Set(meRec.social?.friends || []);
+    if (!myFriends.has(target)) return socket.emit("sendError", { reason: "You can only invite friends." });
+
+    const tRec = users[target];
+    if (tRec.settings?.allowGroupInvites === false) return socket.emit("sendError", { reason: "User has group invites disabled." });
+
+    const inv = { id: newId("inv"), to: target, from: authedUser, ts: now() };
+    g.invites.push(inv);
+
+    addInboxItem(target, {
+      id: inv.id,
+      type: "group",
+      from: authedUser,
+      text: `Invited you to “${g.name}”`,
+      ts: inv.ts,
+      meta: { groupId: gid, name: g.name }
+    });
+
+    persistAll();
+    emitToUser(target, "inbox:badge", countInbox(tRec));
+    emitToUser(target, "inbox:data", { items: tRec.inbox });
+  });
+
+  // Leave / delete
   socket.on("group:leave", ({ groupId }) => {
     if (!requireNonGuest()) return;
     const gid = String(groupId || "");
     const g = groups[gid];
-    if (!g || !g.members.includes(authedUser)) return;
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (!g.members.includes(authedUser)) return;
 
     if (g.owner === authedUser) {
       const members = [...g.members];
@@ -824,7 +1094,7 @@ io.on("connection", (socket) => {
       persistAll();
       for (const m of members) {
         emitToUser(m, "group:deleted", { groupId: gid });
-        emitToUser(m, "groups:list", Object.values(groups).filter(x => x.members.includes(m)).map(groupPublic));
+        emitToUser(m, "groups:list", Object.values(groups).map(ensureGroupDefaults).filter(x => x.members.includes(m)).map(groupPublic));
       }
       return;
     }
@@ -836,14 +1106,16 @@ io.on("connection", (socket) => {
     for (const m of g.members) emitToUser(m, "group:meta", { groupId: gid, meta });
 
     socket.emit("group:left", { groupId: gid });
-    socket.emit("groups:list", Object.values(groups).filter(x => x.members.includes(authedUser)).map(groupPublic));
+    socket.emit("groups:list", Object.values(groups).map(ensureGroupDefaults).filter(x => x.members.includes(authedUser)).map(groupPublic));
   });
 
   socket.on("group:delete", ({ groupId }) => {
     if (!requireNonGuest()) return;
     const gid = String(groupId || "");
     const g = groups[gid];
-    if (!g || g.owner !== authedUser) return;
+    if (!g) return;
+    ensureGroupDefaults(g);
+    if (g.owner !== authedUser) return;
 
     const members = [...g.members];
     delete groups[gid];
@@ -851,7 +1123,7 @@ io.on("connection", (socket) => {
 
     for (const m of members) {
       emitToUser(m, "group:deleted", { groupId: gid });
-      emitToUser(m, "groups:list", Object.values(groups).filter(x => x.members.includes(m)).map(groupPublic));
+      emitToUser(m, "groups:list", Object.values(groups).map(ensureGroupDefaults).filter(x => x.members.includes(m)).map(groupPublic));
     }
   });
 });
