@@ -1,1051 +1,1001 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>tonkotsu.online</title>
+// server.js — full working Socket.IO chat server
+// Features:
+// - Login/Create account (username+password strict alnum, min 4)
+// - Guest login
+// - Session resume via token
+// - Status (online/idle/dnd/invisible), with online list broadcast
+// - Global chat history
+// - DMs (no guests)
+// - Friends + friend requests (Inbox)
+// - Mentions @username -> Inbox mention item + badge updates
+// - Groups with invites, member cap 200, group info/meta, owner tools
+//
+// Run:
+//   npm i
+//   npm start
+//
+// Then open: http://localhost:3000
 
-  <style>
-    :root{
-      --bg:#07080a;
-      --bg2:#0a0c0f;
-      --panel:rgba(255,255,255,.035);
-      --panel2:rgba(255,255,255,.02);
-      --stroke:rgba(255,255,255,.08);
-      --stroke2:rgba(255,255,255,.11);
-      --text:#e9eff6;
-      --muted:#98a6b6;
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 
-      --danger:#ff4b4b;
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 
-      --online:#43d18b;
-      --idle:#ffd166;
-      --dnd:#ff5252;
-      --offline:#6b7a90;
+// -------------------- Paths / Storage --------------------
+const DATA_DIR = path.join(__dirname, "data");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const GROUPS_FILE = path.join(DATA_DIR, "groups.json");
+const GLOBAL_FILE = path.join(DATA_DIR, "global.json");
 
-      --radius:14px;
-      --shadow: 0 18px 60px rgba(0,0,0,.55);
-      --shadow2: 0 12px 40px rgba(0,0,0,.45);
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-      --ease: cubic-bezier(.2,.8,.2,1);
-      --fast: 140ms var(--ease);
-      --med: 220ms var(--ease);
-      --slow: 420ms var(--ease);
+function readJson(file, fallback) {
+  try {
+    if (!fs.existsSync(file)) return fallback;
+    const raw = fs.readFileSync(file, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(file, obj) {
+  fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
+}
 
-      --h: 36px; /* control height */
-      --gap: 10px;
-    }
+let users = readJson(USERS_FILE, {}); // username -> userRecord
+let groups = readJson(GROUPS_FILE, {}); // groupId -> groupRecord
+let globalHistory = readJson(GLOBAL_FILE, []); // [{user,text,ts}]
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      background: radial-gradient(900px 900px at 20% 10%, rgba(255,255,255,.06), transparent 60%),
-                  radial-gradient(1000px 900px at 88% 70%, rgba(255,255,255,.05), transparent 60%),
-                  linear-gradient(180deg, var(--bg), var(--bg2));
-      color:var(--text);
-      font: 520 12.5px/1.35 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      overflow:hidden;
-    }
+function persistAll() {
+  writeJson(USERS_FILE, users);
+  writeJson(GROUPS_FILE, groups);
+  writeJson(GLOBAL_FILE, globalHistory);
+}
 
-    /* ===== DOTTED STAR BACKGROUND (with motion) ===== */
-    .bg{
-      position:fixed; inset:0;
-      pointer-events:none;
-      overflow:hidden;
-      filter: contrast(1.05) saturate(1.05);
-    }
-    .starLayer{
-      position:absolute; inset:-240px;
-      background-repeat:repeat;
-      opacity:.7;
-      animation: driftA 110s linear infinite;
-      transform: translate3d(0,0,0);
-      will-change: transform;
-    }
-    .starLayer.l1{
-      background-size: 280px 280px;
-      opacity:.70;
-      background-image:
-        radial-gradient(1px 1px at 12px 18px, rgba(255,255,255,.60), transparent 45%),
-        radial-gradient(1px 1px at 54px 120px, rgba(255,255,255,.70), transparent 45%),
-        radial-gradient(1px 1px at 98px 52px, rgba(255,255,255,.55), transparent 45%),
-        radial-gradient(1px 1px at 160px 210px, rgba(255,255,255,.62), transparent 45%),
-        radial-gradient(1px 1px at 220px 160px, rgba(255,255,255,.58), transparent 45%),
-        radial-gradient(1px 1px at 250px 30px, rgba(255,255,255,.68), transparent 45%);
-    }
-    .starLayer.l2{
-      background-size: 380px 380px;
-      opacity:.45;
-      animation: driftB 165s linear infinite;
-      background-image:
-        radial-gradient(1px 1px at 26px 40px, rgba(255,255,255,.62), transparent 45%),
-        radial-gradient(1px 1px at 120px 210px, rgba(255,255,255,.55), transparent 45%),
-        radial-gradient(1px 1px at 240px 90px, rgba(255,255,255,.70), transparent 45%),
-        radial-gradient(1px 1px at 320px 310px, rgba(255,255,255,.58), transparent 45%);
-    }
-    .starLayer.l3{
-      background-size: 560px 560px;
-      opacity:.25;
-      animation: driftC 220s linear infinite;
-      background-image:
-        radial-gradient(1px 1px at 180px 150px, rgba(255,255,255,.62), transparent 45%),
-        radial-gradient(1px 1px at 360px 260px, rgba(255,255,255,.56), transparent 45%),
-        radial-gradient(1px 1px at 420px 80px, rgba(255,255,255,.70), transparent 45%);
-    }
-    @keyframes driftA { from{ transform:translate3d(0,0,0);} to{ transform:translate3d(-280px,-280px,0);} }
-    @keyframes driftB { from{ transform:translate3d(0,0,0);} to{ transform:translate3d(-380px,-380px,0);} }
-    @keyframes driftC { from{ transform:translate3d(0,0,0);} to{ transform:translate3d(-560px,-560px,0);} }
+// -------------------- Validation --------------------
+function isValidUser(u) {
+  return /^[A-Za-z0-9]{4,20}$/.test(String(u || ""));
+}
+function isValidPass(p) {
+  return /^[A-Za-z0-9]{4,32}$/.test(String(p || ""));
+}
+function isGuestName(u) {
+  return /^Guest\d{4,5}$/.test(String(u || ""));
+}
 
-    /* subtle twinkle overlay */
-    .twinkle{
-      position:absolute; inset:0;
-      background: radial-gradient(700px 700px at 65% 35%, rgba(255,255,255,.06), transparent 55%),
-                  radial-gradient(800px 800px at 35% 75%, rgba(255,255,255,.05), transparent 60%);
-      opacity:.55;
-      animation: twinkle 8s ease-in-out infinite;
-      mix-blend-mode: screen;
-    }
-    @keyframes twinkle{
-      0%,100%{ opacity:.42; filter: blur(0px); }
-      50%{ opacity:.60; filter: blur(.3px); }
-    }
+// -------------------- Password hashing --------------------
+function pbkdf2Hash(password, salt) {
+  const iters = 120000;
+  const keylen = 32;
+  const digest = "sha256";
+  const dk = crypto.pbkdf2Sync(password, salt, iters, keylen, digest);
+  return { iters, keylen, digest, hash: dk.toString("hex") };
+}
+function createPasswordRecord(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const out = pbkdf2Hash(password, salt);
+  return { salt, iters: out.iters, keylen: out.keylen, digest: out.digest, hash: out.hash };
+}
+function verifyPassword(password, record) {
+  try {
+    const dk = crypto.pbkdf2Sync(password, record.salt, record.iters, record.keylen, record.digest);
+    return crypto.timingSafeEqual(Buffer.from(record.hash, "hex"), dk);
+  } catch {
+    return false;
+  }
+}
 
-    /* ===== SHELL / APP CARD ===== */
-    .shell{
-      position:fixed; inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding: 22px;
-    }
-    .card{
-      width:min(980px, 100%);
-      height:min(720px, 100%);
-      border:1px solid var(--stroke);
-      border-radius: 18px;
-      background: rgba(8,10,13,.78);
-      backdrop-filter: blur(12px);
-      box-shadow: var(--shadow);
-      display:flex;
-      overflow:hidden;
-      position:relative;
-      transform: translateZ(0);
-      will-change: transform, filter;
-      animation: cardIn 520ms var(--ease) both;
-    }
-    @keyframes cardIn{
-      from{ opacity:0; transform: translateY(10px) scale(.985); filter: blur(2px); }
-      to{ opacity:1; transform: translateY(0) scale(1); filter: blur(0); }
-    }
+// -------------------- Helpers --------------------
+function now() {
+  return Date.now();
+}
+function newToken() {
+  return crypto.randomBytes(24).toString("hex");
+}
+function newId(prefix) {
+  return `${prefix}_${crypto.randomBytes(10).toString("hex")}`;
+}
 
-    /* ===== UNIVERSAL CONTROLS ===== */
-    .btn{
-      height: var(--h);
-      padding: 0 12px;
-      border-radius: 12px;
-      border:1px solid var(--stroke2);
-      background: rgba(255,255,255,.04);
-      color:var(--text);
-      cursor:pointer;
-      user-select:none;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:10px;
-      font-weight: 900;
-      letter-spacing:.2px;
-      transition: transform var(--fast), background var(--fast), border-color var(--fast), box-shadow var(--fast), filter var(--fast);
-      position:relative;
-      overflow:hidden;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .btn:hover{
-      background: rgba(255,255,255,.06);
-      transform: translateY(-1px);
-      box-shadow: 0 10px 30px rgba(0,0,0,.35);
-    }
-    .btn:active{
-      transform: translateY(0) scale(.985);
-      filter: brightness(1.04);
-    }
-    .btn.primary{
-      background: rgba(255,255,255,.10);
-      border-color: rgba(255,255,255,.16);
-    }
-    .btn.ghost{
-      background: transparent;
-      border-color: rgba(255,255,255,.10);
-    }
-    .btn.small{
-      height: 30px;
-      padding: 0 10px;
-      border-radius: 11px;
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .btn:disabled{
-      opacity:.55;
-      cursor:not-allowed;
-      transform:none !important;
-      box-shadow:none !important;
-    }
-    .btn .ripple{
-      position:absolute;
-      width: 10px; height: 10px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.22);
-      transform: translate(-50%,-50%);
-      pointer-events:none;
-      animation: ripple 520ms var(--ease) both;
-    }
-    @keyframes ripple{
-      from{ opacity:.65; transform: translate(-50%,-50%) scale(1); }
-      to{ opacity:0; transform: translate(-50%,-50%) scale(22); }
-    }
+function ensureUser(username) {
+  if (!users[username]) {
+    users[username] = {
+      user: username,
+      createdAt: now(),
+      pass: null, // {salt,iters,keylen,digest,hash}
+      token: null,
+      status: "online",
+      settings: { sounds: true, hideMildProfanity: false },
+      social: {
+        friends: [],
+        incoming: [],
+        outgoing: [],
+        blocked: []
+      },
+      inbox: [], // items: {id,type,from,text,ts,meta}
+      stats: { messages: 0, xp: 0, level: 1 }
+    };
+  }
+  return users[username];
+}
 
-    .field{
-      height: var(--h);
-      width:100%;
-      padding: 0 12px;
-      border-radius: 12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      color:var(--text);
-      outline:none;
-      transition: border-color var(--fast), background var(--fast), transform var(--fast);
-    }
-    .field:focus{
-      border-color: rgba(255,255,255,.22);
-      background: rgba(255,255,255,.04);
-      transform: translateY(-1px);
-    }
-    .muted{ color:var(--muted); font-size:12px; }
-    .muted.tiny{ font-size:11px; }
+function addInboxItem(toUser, item) {
+  const u = ensureUser(toUser);
+  u.inbox.unshift(item);
+  // keep inbox smallish
+  if (u.inbox.length > 200) u.inbox.length = 200;
+}
 
-    /* ===== ICONS (NO LETTERS) ===== */
-    .ico{
-      width: 18px;
-      height: 18px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      opacity:.95;
-      flex: 0 0 auto;
-    }
-    .ico svg{ width:18px; height:18px; stroke: rgba(255,255,255,.88); fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+function countInbox(u) {
+  const items = (u.inbox || []);
+  let friend = 0, groupInv = 0, ment = 0;
+  for (const it of items) {
+    if (it.type === "friend") friend++;
+    else if (it.type === "group") groupInv++;
+    else if (it.type === "mention") ment++;
+  }
+  return { total: friend + groupInv + ment, friend, groupInv, ment };
+}
 
-    /* ===== BADGES ===== */
-    .badge{
-      min-width: 18px;
-      height: 18px;
-      padding: 0 6px;
-      border-radius: 8px;
-      background: var(--danger);
-      color:#0b0d10;
-      font-weight: 950;
-      font-size: 11px;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      line-height:18px;
-      box-shadow: 0 10px 28px rgba(0,0,0,.30);
-      transform: translateZ(0);
-      animation: pop 240ms var(--ease) both;
-    }
-    .badge.show{ display:flex; }
-    @keyframes pop{
-      from{ transform: scale(.8); opacity:0; }
-      to{ transform: scale(1); opacity:1; }
-    }
+function safeUserPublic(u) {
+  return {
+    user: u.user,
+    status: u.status
+  };
+}
 
-    /* ===== LOGIN OVERLAY ===== */
-    .overlay{
-      position:absolute; inset:0;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      background: rgba(0,0,0,.58);
-      backdrop-filter: blur(10px);
-      z-index: 50;
-      opacity: 1;
-      transition: opacity var(--med), transform var(--med), filter var(--med);
-    }
-    .overlay.hidden{ opacity:0; pointer-events:none; }
+// -------------------- Online tracking --------------------
+const socketsByUser = new Map(); // user -> Set(socket.id)
+const userBySocket = new Map();  // socket.id -> user
 
-    .loginCard{
-      width:min(420px, 94vw);
-      border:1px solid var(--stroke);
-      border-radius: 18px;
-      background: rgba(10,12,15,.92);
-      box-shadow: var(--shadow2);
-      padding: 16px;
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
-      transform: translateY(0);
-      animation: loginIn 520ms var(--ease) both;
-    }
-    @keyframes loginIn{
-      from{ opacity:0; transform: translateY(10px) scale(.985); filter: blur(2px); }
-      to{ opacity:1; transform: translateY(0) scale(1); filter: blur(0); }
+function setOnline(user, socketId) {
+  if (!socketsByUser.has(user)) socketsByUser.set(user, new Set());
+  socketsByUser.get(user).add(socketId);
+  userBySocket.set(socketId, user);
+}
+
+function setOffline(socketId) {
+  const user = userBySocket.get(socketId);
+  if (!user) return;
+  userBySocket.delete(socketId);
+  const set = socketsByUser.get(user);
+  if (set) {
+    set.delete(socketId);
+    if (set.size === 0) socketsByUser.delete(user);
+  }
+}
+
+function isOnline(user) {
+  const set = socketsByUser.get(user);
+  return !!set && set.size > 0;
+}
+
+function emitToUser(user, evt, payload) {
+  const set = socketsByUser.get(user);
+  if (!set) return;
+  for (const sid of set) io.to(sid).emit(evt, payload);
+}
+
+function broadcastOnlineUsers() {
+  const list = [];
+  for (const [user] of socketsByUser.entries()) {
+    const u = users[user];
+    if (!u) continue;
+
+    // invisible users should not appear online
+    if (u.status === "invisible") continue;
+
+    list.push(safeUserPublic(u));
+  }
+
+  // sort stable
+  list.sort((a, b) => a.user.localeCompare(b.user));
+  io.emit("onlineUsers", list);
+}
+
+// -------------------- Global History --------------------
+function pushGlobalMessage(msg) {
+  globalHistory.push(msg);
+  if (globalHistory.length > 300) globalHistory.shift();
+  writeJson(GLOBAL_FILE, globalHistory);
+}
+
+// -------------------- Mentions --------------------
+function extractMentions(text) {
+  const t = String(text || "");
+  // @Username tokens, strict alnum 4-20
+  const rx = /@([A-Za-z0-9]{4,20})/g;
+  const found = new Set();
+  let m;
+  while ((m = rx.exec(t)) !== null) {
+    found.add(m[1]);
+  }
+  return Array.from(found);
+}
+
+// -------------------- Groups --------------------
+function ensureGroup(groupId) {
+  return groups[groupId];
+}
+
+function groupPublic(g) {
+  return {
+    id: g.id,
+    name: g.name,
+    owner: g.owner,
+    members: g.members
+  };
+}
+
+function userCanSeeGroup(user, groupId) {
+  const g = groups[groupId];
+  if (!g) return false;
+  return g.members.includes(user);
+}
+
+// -------------------- Express / Socket.IO --------------------
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+io.on("connection", (socket) => {
+  let authedUser = null;
+
+  function requireAuth() {
+    return !!authedUser && users[authedUser];
+  }
+  function requireNonGuest() {
+    return requireAuth() && !isGuestName(authedUser);
+  }
+
+  function sendInitSuccess(u, { guest = false } = {}) {
+    authedUser = u.user;
+    setOnline(authedUser, socket.id);
+
+    // default status when connecting:
+    // - guests are always "online"
+    // - stored status for users, but if invisible, keep invisible (they appear offline in list)
+    if (guest) u.status = "online";
+
+    // token for resume (non-guest)
+    let tok = null;
+    if (!guest) {
+      if (!u.token) u.token = newToken();
+      tok = u.token;
     }
 
-    .brandRow{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-    }
-    .brand{
-      font-weight: 950;
-      letter-spacing: .2px;
-      font-size: 15px;
+    socket.emit("loginSuccess", {
+      username: u.user,
+      guest: !!guest,
+      token: tok,
+      status: u.status,
+      settings: u.settings || { sounds: true, hideMildProfanity: false },
+      social: u.social || { friends: [], incoming: [], outgoing: [], blocked: [] }
+    });
+
+    // send inbox badge + items
+    if (!guest) {
+      socket.emit("inbox:badge", countInbox(u));
+      socket.emit("inbox:data", { items: (u.inbox || []) });
+      socket.emit("social:update", u.social);
+      socket.emit("settings", u.settings);
     }
 
-    .passRow{ position:relative; }
-    .eye{
-      position:absolute;
-      right: 8px;
-      top: 50%;
-      transform: translateY(-50%);
-      height: 30px;
-      width: 38px;
-      border-radius: 12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      cursor:pointer;
-      transition: background var(--fast), transform var(--fast), border-color var(--fast);
-      user-select:none;
-    }
-    .eye:hover{ background: rgba(255,255,255,.05); transform: translateY(-50%) translateY(-1px); }
+    broadcastOnlineUsers();
+  }
 
-    .btnRow{
-      display:flex;
-      gap:10px;
-      align-items:center;
+  // -------------------- Session resume --------------------
+  socket.on("resume", ({ token }) => {
+    const tok = String(token || "");
+    if (!tok) {
+      socket.emit("resumeFail");
+      return;
     }
-    .btnRow .btn{ flex:1; }
+    const found = Object.values(users).find(u => u.token === tok);
+    if (!found) {
+      socket.emit("resumeFail");
+      return;
+    }
+    sendInitSuccess(found, { guest: false });
+  });
 
-    /* ===== MAIN LAYOUT ===== */
-    .layout{ flex:1; display:flex; min-width:0; min-height:0; }
-    .sidebar{
-      width: 290px;
-      border-right: 1px solid var(--stroke);
-      padding: 10px;
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-      min-width: 260px;
-      max-width: 320px;
-      min-height:0;
-      background: rgba(0,0,0,.18);
-    }
-    .main{
-      flex:1;
-      display:flex;
-      flex-direction:column;
-      min-width:0;
-      min-height:0;
+  // -------------------- Login / Guest --------------------
+  socket.on("login", ({ username, password, guest }) => {
+    if (guest) {
+      // Create a unique guest username
+      let g;
+      for (let i = 0; i < 50; i++) {
+        const n = 1000 + Math.floor(Math.random() * 9000);
+        const name = `Guest${n}`;
+        if (!users[name] && !isOnline(name)) {
+          g = ensureUser(name);
+          g.pass = null;
+          g.token = null;
+          g.status = "online";
+          break;
+        }
+      }
+      if (!g) {
+        socket.emit("loginError", "Guest slots busy. Try again.");
+        return;
+      }
+      sendInitSuccess(g, { guest: true });
+      persistAll();
+      return;
     }
 
-    /* ===== ROWS / LIST ITEMS ===== */
-    .row{
-      height: 42px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 12px;
-      padding: 0 10px;
-      border-radius: 14px;
-      border:1px solid rgba(255,255,255,.07);
-      background: rgba(255,255,255,.02);
-      cursor:pointer;
-      user-select:none;
-      transition: transform var(--fast), background var(--fast), border-color var(--fast), box-shadow var(--fast);
-      position:relative;
-      overflow:hidden;
-    }
-    .row:hover{
-      background: rgba(255,255,255,.03);
-      border-color: rgba(255,255,255,.10);
-      transform: translateY(-1px);
-      box-shadow: 0 12px 32px rgba(0,0,0,.35);
-    }
-    .row:active{
-      transform: translateY(0) scale(.99);
-    }
-    .row::after{
-      content:"";
-      position:absolute; inset:0;
-      background: radial-gradient(400px 140px at 20% 0%, rgba(255,255,255,.08), transparent 55%);
-      opacity:0;
-      transition: opacity var(--fast);
-      pointer-events:none;
-    }
-    .row:hover::after{ opacity:1; }
+    const u = String(username || "");
+    const p = String(password || "");
 
-    .rowLeft{ display:flex; align-items:center; gap:10px; min-width:0; }
-    .nameCol{ min-width:0; display:flex; flex-direction:column; gap:2px; }
-    .rowName{ font-weight: 950; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .rowSub{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    .chip{
-      height: 24px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      font-size:11px;
-      color: rgba(255,255,255,.88);
-      user-select:none;
+    if (!isValidUser(u)) {
+      socket.emit("loginError", "Username must be letters/numbers only (min 4).");
+      return;
+    }
+    if (!isValidPass(p)) {
+      socket.emit("loginError", "Password must be letters/numbers only (min 4).");
+      return;
     }
 
-    /* ===== STATUS DOTS ===== */
-    .statusDot{
-      width:10px; height:10px;
-      border-radius: 99px;
-      border:1px solid rgba(255,255,255,.14);
-      background: rgba(255,255,255,.18);
-      flex: 0 0 auto;
-      position:relative;
-      animation: dotIn 260ms var(--ease) both;
-    }
-    @keyframes dotIn{ from{ transform:scale(.7); opacity:0; } to{ transform:scale(1); opacity:1; } }
-    .statusDot.online{ background: var(--online); box-shadow: 0 0 0 3px rgba(67,209,139,.12); }
-    .statusDot.idle{ background: var(--idle); box-shadow: 0 0 0 3px rgba(255,209,102,.12); }
-    .statusDot.dnd{ background: var(--dnd); box-shadow: 0 0 0 3px rgba(255,82,82,.12); }
-    .statusDot.offline{ background: var(--offline); box-shadow: 0 0 0 3px rgba(107,122,144,.12); }
+    const rec = ensureUser(u);
 
-    /* ===== TOPBAR ===== */
-    .topbar{
-      height: 56px;
-      padding: 10px 12px;
-      border-bottom:1px solid var(--stroke);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 12px;
-      min-width:0;
-      background: rgba(0,0,0,.12);
-    }
-    .titleBlock{ min-width:0; display:flex; flex-direction:column; gap:2px; }
-    .chatTitle{
-      font-weight: 950;
-      font-size: 12.5px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      letter-spacing:.2px;
-      transition: transform var(--fast), opacity var(--fast);
-    }
-    .chatTitle.clickable{ cursor:pointer; }
-    .chatTitle.clickable:hover{ transform: translateY(-1px); }
-    .chatHint{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    .mePill{
-      height: 38px;
-      padding: 0 10px;
-      border-radius: 999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.03);
-      display:none;
-      align-items:center;
-      gap:10px;
-      cursor:pointer;
-      user-select:none;
-      min-width: 0;
-      transition: transform var(--fast), background var(--fast), border-color var(--fast), box-shadow var(--fast);
-    }
-    .mePill:hover{
-      transform: translateY(-1px);
-      background: rgba(255,255,255,.05);
-      box-shadow: 0 12px 34px rgba(0,0,0,.35);
-    }
-    .meName{ font-weight: 950; font-size: 12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 180px; }
-    .meSub{ font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 180px; }
-
-    /* ===== SCROLL ===== */
-    .scroll{ overflow:auto; min-height:0; padding-right: 2px; }
-    .scroll::-webkit-scrollbar{ width: 10px; }
-    .scroll::-webkit-scrollbar-thumb{
-      background: rgba(255,255,255,.08);
-      border-radius: 99px;
-      border: 3px solid transparent;
-      background-clip: content-box;
+    if (!rec.pass) {
+      // create account
+      rec.pass = createPasswordRecord(p);
+      rec.token = newToken();
+      rec.status = "online";
+      persistAll();
+      sendInitSuccess(rec, { guest: false });
+      return;
     }
 
-    /* ===== ONLINE PANEL (compact, collapsible) ===== */
-    .panel{
-      border:1px solid rgba(255,255,255,.07);
-      border-radius: 16px;
-      background: rgba(255,255,255,.02);
-      overflow:hidden;
-    }
-    .panelHeader{
-      height: 40px;
-      padding: 0 10px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      border-bottom: 1px solid rgba(255,255,255,.06);
-      background: rgba(0,0,0,.10);
-    }
-    .panelTitle{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-      font-weight: 950;
-      font-size: 12px;
-      letter-spacing:.2px;
-    }
-    .panelRight{ display:flex; align-items:center; gap:10px; }
-    .panelBody{
-      max-height: 140px;
-      transition: max-height var(--slow), opacity var(--med);
-      opacity:1;
-    }
-    .panelBody.collapsed{
-      max-height: 0px;
-      opacity:0;
-      overflow:hidden;
+    if (!verifyPassword(p, rec.pass)) {
+      socket.emit("loginError", "Incorrect password.");
+      return;
     }
 
-    /* ===== MESSAGES PANEL ===== */
-    .sectionTitle{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      font-weight: 950;
-      font-size: 12px;
-      padding: 2px 2px 0 2px;
-      letter-spacing:.2px;
-    }
-    .messagesPanel{
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-      flex:1;
-      min-height:0;
+    // successful login, rotate token
+    rec.token = newToken();
+    rec.status = rec.status || "online";
+    persistAll();
+    sendInitSuccess(rec, { guest: false });
+  });
+
+  // -------------------- Disconnect --------------------
+  socket.on("disconnect", () => {
+    setOffline(socket.id);
+    broadcastOnlineUsers();
+  });
+
+  // -------------------- Status --------------------
+  socket.on("status:set", ({ status }) => {
+    if (!requireAuth()) return;
+    const s = String(status || "");
+    const allowed = new Set(["online", "idle", "dnd", "invisible"]);
+    if (!allowed.has(s)) return;
+
+    const u = users[authedUser];
+    u.status = s;
+
+    // tell that user only (for UI), and update online list
+    emitToUser(authedUser, "status:update", { status: s });
+    persistAll();
+    broadcastOnlineUsers();
+  });
+
+  // -------------------- Settings --------------------
+  socket.on("settings:update", (s) => {
+    if (!requireNonGuest()) return;
+    const u = users[authedUser];
+    u.settings = u.settings || {};
+    if (typeof s?.sounds === "boolean") u.settings.sounds = s.sounds;
+    if (typeof s?.hideMildProfanity === "boolean") u.settings.hideMildProfanity = s.hideMildProfanity;
+    persistAll();
+    socket.emit("settings", u.settings);
+  });
+
+  // -------------------- Social sync --------------------
+  socket.on("social:sync", () => {
+    if (!requireNonGuest()) return;
+    socket.emit("social:update", users[authedUser].social);
+  });
+
+  // -------------------- Profile --------------------
+  socket.on("profile:get", ({ user }) => {
+    if (!requireAuth()) return;
+    const target = String(user || "");
+    const t = users[target];
+    if (!t) {
+      socket.emit("profile:data", { user: target, guest: true });
+      return;
     }
 
-    /* ===== CHAT ===== */
-    .chatBox{
-      flex:1;
-      padding: 12px;
-      overflow:auto;
-      min-height:0;
-      transition: opacity var(--med), transform var(--med), filter var(--med);
+    socket.emit("profile:data", {
+      user: t.user,
+      guest: isGuestName(t.user),
+      createdAt: t.createdAt,
+      status: t.status || "offline",
+      messages: t.stats?.messages || 0,
+      xp: t.stats?.xp || 0,
+      level: t.stats?.level || 1,
+      next: 120 + (t.stats?.level || 1) * 40
+    });
+  });
+
+  // -------------------- Block/unblock --------------------
+  socket.on("user:block", ({ user }) => {
+    if (!requireNonGuest()) return;
+    const target = String(user || "");
+    if (!users[target] || target === authedUser) return;
+
+    const meRec = users[authedUser];
+    meRec.social.blocked = meRec.social.blocked || [];
+    if (!meRec.social.blocked.includes(target)) meRec.social.blocked.push(target);
+
+    // if friends, remove
+    meRec.social.friends = (meRec.social.friends || []).filter(x => x !== target);
+    meRec.social.incoming = (meRec.social.incoming || []).filter(x => x !== target);
+    meRec.social.outgoing = (meRec.social.outgoing || []).filter(x => x !== target);
+
+    persistAll();
+    socket.emit("social:update", meRec.social);
+  });
+
+  socket.on("user:unblock", ({ user }) => {
+    if (!requireNonGuest()) return;
+    const target = String(user || "");
+    const meRec = users[authedUser];
+    meRec.social.blocked = (meRec.social.blocked || []).filter(x => x !== target);
+    persistAll();
+    socket.emit("social:update", meRec.social);
+  });
+
+  // -------------------- Friend requests --------------------
+  socket.on("friend:request", ({ to }) => {
+    if (!requireNonGuest()) return;
+    const target = String(to || "");
+    if (!users[target]) {
+      socket.emit("sendError", { reason: "User not found." });
+      return;
     }
-    .chatBox.fading{
-      opacity:0;
-      transform: translateY(6px);
-      filter: blur(1px);
+    if (target === authedUser) return;
+
+    const meRec = users[authedUser];
+    const tRec = users[target];
+
+    // blocked checks
+    if ((meRec.social.blocked || []).includes(target)) {
+      socket.emit("sendError", { reason: "Unblock user first." });
+      return;
+    }
+    if ((tRec.social.blocked || []).includes(authedUser)) {
+      socket.emit("sendError", { reason: "Cannot send request to this user." });
+      return;
     }
 
-    .msg{
-      display:flex;
-      margin-bottom: 10px;
-    }
-    .bubble{
-      max-width: 70%;
-      border:1px solid rgba(255,255,255,.07);
-      background: rgba(255,255,255,.02);
-      border-radius: 16px;
-      padding: 10px 10px;
-      transform: translateY(0);
-      transition: transform var(--fast), background var(--fast), border-color var(--fast), box-shadow var(--fast);
-      animation: msgIn 320ms var(--ease) both;
-      box-shadow: 0 10px 28px rgba(0,0,0,.25);
-    }
-    @keyframes msgIn{
-      from{ opacity:0; transform: translateY(6px); filter: blur(1px); }
-      to{ opacity:1; transform: translateY(0); filter: blur(0); }
-    }
-    .bubble:hover{
-      background: rgba(255,255,255,.03);
-      transform: translateY(-1px);
-      border-color: rgba(255,255,255,.10);
-      box-shadow: 0 16px 42px rgba(0,0,0,.35);
-    }
-    .meta{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      margin-bottom: 6px;
-    }
-    .u{
-      font-weight: 950;
-      font-size: 12px;
-      cursor:pointer;
-      user-select:none;
-      transition: transform var(--fast), opacity var(--fast);
-    }
-    .u:hover{ transform: translateY(-1px); }
-    .t{ font-size:11px; color:var(--muted); flex: 0 0 auto; }
-    .body{
-      font-size:12px;
-      color: var(--text);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .mention{
-      color: var(--danger);
-      font-weight: 950;
+    meRec.social.outgoing = meRec.social.outgoing || [];
+    tRec.social.incoming = tRec.social.incoming || [];
+    meRec.social.friends = meRec.social.friends || [];
+    tRec.social.friends = tRec.social.friends || [];
+
+    if (meRec.social.friends.includes(target)) return;
+    if (meRec.social.outgoing.includes(target)) return;
+
+    // Add outgoing/incoming
+    meRec.social.outgoing.push(target);
+    if (!tRec.social.incoming.includes(authedUser)) tRec.social.incoming.push(authedUser);
+
+    // Inbox item for target
+    addInboxItem(target, {
+      id: newId("inb"),
+      type: "friend",
+      from: authedUser,
+      text: `${authedUser} sent you a friend request`,
+      ts: now()
+    });
+
+    persistAll();
+
+    socket.emit("social:update", meRec.social);
+    emitToUser(target, "social:update", tRec.social);
+    emitToUser(target, "inbox:badge", countInbox(tRec));
+    emitToUser(target, "inbox:data", { items: tRec.inbox });
+  });
+
+  socket.on("friend:accept", ({ from }) => {
+    if (!requireNonGuest()) return;
+    const src = String(from || "");
+    if (!users[src]) return;
+
+    const meRec = users[authedUser];
+    const sRec = users[src];
+
+    meRec.social.incoming = (meRec.social.incoming || []).filter(x => x !== src);
+    sRec.social.outgoing = (sRec.social.outgoing || []).filter(x => x !== authedUser);
+
+    meRec.social.friends = meRec.social.friends || [];
+    sRec.social.friends = sRec.social.friends || [];
+    if (!meRec.social.friends.includes(src)) meRec.social.friends.push(src);
+    if (!sRec.social.friends.includes(authedUser)) sRec.social.friends.push(authedUser);
+
+    // remove friend inbox items from me
+    meRec.inbox = (meRec.inbox || []).filter(it => !(it.type === "friend" && it.from === src));
+
+    persistAll();
+    socket.emit("social:update", meRec.social);
+    emitToUser(src, "social:update", sRec.social);
+
+    socket.emit("inbox:badge", countInbox(meRec));
+    socket.emit("inbox:data", { items: meRec.inbox });
+
+    emitToUser(src, "inbox:badge", countInbox(sRec));
+  });
+
+  socket.on("friend:decline", ({ from }) => {
+    if (!requireNonGuest()) return;
+    const src = String(from || "");
+    if (!users[src]) return;
+
+    const meRec = users[authedUser];
+    const sRec = users[src];
+
+    meRec.social.incoming = (meRec.social.incoming || []).filter(x => x !== src);
+    sRec.social.outgoing = (sRec.social.outgoing || []).filter(x => x !== authedUser);
+
+    // remove friend inbox items
+    meRec.inbox = (meRec.inbox || []).filter(it => !(it.type === "friend" && it.from === src));
+
+    persistAll();
+    socket.emit("social:update", meRec.social);
+    emitToUser(src, "social:update", sRec.social);
+
+    socket.emit("inbox:badge", countInbox(meRec));
+    socket.emit("inbox:data", { items: meRec.inbox });
+  });
+
+  // -------------------- Inbox --------------------
+  socket.on("inbox:get", () => {
+    if (!requireNonGuest()) return;
+    const u = users[authedUser];
+    socket.emit("inbox:badge", countInbox(u));
+    socket.emit("inbox:data", { items: u.inbox || [] });
+  });
+
+  socket.on("inbox:clearMentions", () => {
+    if (!requireNonGuest()) return;
+    const u = users[authedUser];
+    u.inbox = (u.inbox || []).filter(it => it.type !== "mention");
+    persistAll();
+    socket.emit("inbox:badge", countInbox(u));
+    socket.emit("inbox:data", { items: u.inbox });
+  });
+
+  // -------------------- Global chat --------------------
+  socket.on("requestGlobalHistory", () => {
+    socket.emit("history", globalHistory);
+  });
+
+  socket.on("sendGlobal", ({ text, ts }) => {
+    if (!requireAuth()) return;
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (t.length > 1000) return;
+
+    const msg = { user: authedUser, text: t, ts: Number(ts) || now() };
+    pushGlobalMessage(msg);
+
+    // stats
+    const u = users[authedUser];
+    if (u && !isGuestName(authedUser)) {
+      u.stats.messages = (u.stats.messages || 0) + 1;
+      u.stats.xp = (u.stats.xp || 0) + 5;
+      const next = 120 + (u.stats.level || 1) * 40;
+      if (u.stats.xp >= next) {
+        u.stats.level = (u.stats.level || 1) + 1;
+        u.stats.xp = 0;
+      }
+      persistAll();
     }
 
-    /* ===== COMPOSER ===== */
-    .composer{
-      padding: 10px 12px 12px 12px;
-      border-top:1px solid var(--stroke);
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-      background: rgba(0,0,0,.12);
-    }
-    .composerRow{
-      display:flex;
-      gap: 10px;
-      align-items:stretch;
-    }
-    .composerRow .field{ flex:1; }
-    .composerRow .btn{ width: 108px; }
+    io.emit("globalMessage", msg);
 
-    .cooldown{
-      display:none;
-      align-items:center;
-      gap:10px;
-      color: var(--muted);
-      font-size:11px;
-      user-select:none;
-      transition: transform var(--fast), opacity var(--fast);
-    }
-    .cooldown.warn{ color: var(--danger); }
-    .bar{
-      flex:1;
-      height: 10px;
-      border-radius: 999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.05);
-      overflow:hidden;
-      position:relative;
-    }
-    .barFill{
-      width:0%;
-      height:100%;
-      background: rgba(255,255,255,.18);
-      transition: width 70ms linear;
-    }
-    .shake{ animation: shake 320ms ease; }
-    @keyframes shake{
-      0%,100%{ transform: translateX(0); }
-      20%{ transform: translateX(-4px); }
-      40%{ transform: translateX(4px); }
-      60%{ transform: translateX(-3px); }
-      80%{ transform: translateX(3px); }
-    }
+    // mentions -> inbox mention items
+    const mentions = extractMentions(t);
+    if (mentions.length) {
+      for (const m of mentions) {
+        if (!users[m]) continue;
+        if (m === authedUser) continue;
 
-    /* ===== LOADING OVERLAY ===== */
-    .loading{
-      position:absolute; inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      background: rgba(0,0,0,.58);
-      backdrop-filter: blur(10px);
-      z-index: 55;
-      opacity:0;
-      transition: opacity var(--med);
+        // if mentioned user blocks sender, ignore
+        const rec = users[m];
+        if ((rec.social?.blocked || []).includes(authedUser)) continue;
+
+        addInboxItem(m, {
+          id: newId("inb"),
+          type: "mention",
+          from: authedUser,
+          text: `Mentioned you in Global: ${t.slice(0, 160)}`,
+          ts: now(),
+          meta: { scope: "global" }
+        });
+
+        persistAll();
+        emitToUser(m, "inbox:badge", countInbox(rec));
+        emitToUser(m, "inbox:data", { items: rec.inbox });
+      }
     }
-    .loading.show{
-      display:flex;
-      opacity:1;
-    }
-    .loader{
-      width:min(360px, 92vw);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius: 18px;
-      background: rgba(10,12,15,.92);
-      box-shadow: var(--shadow2);
-      padding: 16px;
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-      transform: translateY(6px);
-      animation: loaderIn 320ms var(--ease) both;
-    }
-    @keyframes loaderIn{
-      from{ opacity:0; transform: translateY(10px) scale(.99); }
-      to{ opacity:1; transform: translateY(0) scale(1); }
-    }
-    .loadRow{ display:flex; align-items:center; gap:10px; }
-    .spinner{
-      width: 18px; height: 18px;
-      border-radius: 999px;
-      border:2px solid rgba(255,255,255,.14);
-      border-top-color: rgba(255,255,255,.70);
-      animation: spin 650ms linear infinite;
-    }
-    @keyframes spin{ to{ transform: rotate(360deg);} }
-    .dots{
-      display:inline-flex;
-      gap:5px;
-      margin-left: 2px;
-    }
-    .dot{
-      width:6px; height:6px;
-      border-radius: 99px;
-      background: rgba(255,255,255,.55);
-      animation: dot 900ms var(--ease) infinite;
-      opacity:.5;
-    }
-    .dot:nth-child(2){ animation-delay: 120ms; }
-    .dot:nth-child(3){ animation-delay: 240ms; }
-    @keyframes dot{
-      0%,100%{ transform: translateY(0); opacity:.45; }
-      50%{ transform: translateY(-4px); opacity:.9; }
+  });
+
+  // -------------------- DMs --------------------
+  // store in memory on each user: dm[userA][userB] array (bounded)
+  function ensureDMStore(userA, userB) {
+    const a = ensureUser(userA);
+    a.dm = a.dm || {};
+    if (!a.dm[userB]) a.dm[userB] = [];
+    return a.dm[userB];
+  }
+  function pushDM(a, b, msg) {
+    const arrA = ensureDMStore(a, b);
+    const arrB = ensureDMStore(b, a);
+    arrA.push(msg);
+    arrB.push(msg);
+    if (arrA.length > 250) arrA.shift();
+    if (arrB.length > 250) arrB.shift();
+  }
+
+  socket.on("dm:history", ({ withUser }) => {
+    if (!requireNonGuest()) return;
+    const other = String(withUser || "");
+    if (!users[other] || isGuestName(other)) {
+      socket.emit("dm:history", { withUser: other, msgs: [] });
+      return;
     }
 
-    /* ===== MODAL ===== */
-    .modalBack{
-      position:fixed; inset:0;
-      background: rgba(0,0,0,.58);
-      backdrop-filter: blur(10px);
-      display:none;
-      align-items:center;
-      justify-content:center;
-      z-index: 60;
-      padding: 18px;
-      opacity: 0;
-      transition: opacity var(--med);
+    const meRec = users[authedUser];
+    const otherRec = users[other];
+
+    // block checks
+    if ((meRec.social?.blocked || []).includes(other)) {
+      socket.emit("dm:history", { withUser: other, msgs: [] });
+      return;
     }
-    .modalBack.show{
-      display:flex;
-      opacity:1;
-    }
-    .modal{
-      width:min(560px, 96vw);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius: 18px;
-      background: rgba(10,12,15,.92);
-      box-shadow: var(--shadow2);
-      padding: 12px;
-      display:flex;
-      flex-direction:column;
-      gap: 10px;
-      max-height: min(72vh, 600px);
-      overflow:auto;
-      transform: translateY(8px);
-      animation: modalIn 280ms var(--ease) both;
-    }
-    @keyframes modalIn{
-      from{ opacity:0; transform: translateY(14px) scale(.99); filter: blur(1px); }
-      to{ opacity:1; transform: translateY(0) scale(1); filter: blur(0); }
-    }
-    .modalTop{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      position:sticky;
-      top:0;
-      background: rgba(10,12,15,.92);
-      padding-bottom: 8px;
-      z-index: 2;
-    }
-    .modalTitle{
-      font-weight: 950;
-      font-size: 13px;
-      letter-spacing:.2px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+    if ((otherRec.social?.blocked || []).includes(authedUser)) {
+      socket.emit("dm:history", { withUser: other, msgs: [] });
+      return;
     }
 
-    /* ===== TOASTS ===== */
-    .toasts{
-      position:fixed;
-      right: 16px;
-      bottom: 16px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      z-index: 80;
-      pointer-events:none;
+    const arr = ensureDMStore(authedUser, other);
+    socket.emit("dm:history", { withUser: other, msgs: arr });
+  });
+
+  socket.on("dm:send", ({ to, text }) => {
+    if (!requireNonGuest()) return;
+    const other = String(to || "");
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (t.length > 1000) return;
+    if (!users[other] || isGuestName(other)) return;
+
+    const meRec = users[authedUser];
+    const otherRec = users[other];
+
+    if ((meRec.social?.blocked || []).includes(other)) return;
+    if ((otherRec.social?.blocked || []).includes(authedUser)) return;
+
+    const msg = { user: authedUser, text: t, ts: now() };
+    pushDM(authedUser, other, msg);
+    persistAll();
+
+    // deliver to both sides
+    emitToUser(other, "dm:message", { from: authedUser, msg });
+    socket.emit("dm:message", { from: other, msg }); // echo style for client caches
+
+    // mentions in DM -> inbox mention
+    const mentions = extractMentions(t);
+    for (const m of mentions) {
+      if (!users[m]) continue;
+      if (m === authedUser) continue;
+      const rec = users[m];
+      if ((rec.social?.blocked || []).includes(authedUser)) continue;
+
+      addInboxItem(m, {
+        id: newId("inb"),
+        type: "mention",
+        from: authedUser,
+        text: `Mentioned you in a DM: ${t.slice(0, 160)}`,
+        ts: now(),
+        meta: { scope: "dm", with: other }
+      });
+      persistAll();
+      emitToUser(m, "inbox:badge", countInbox(rec));
+      emitToUser(m, "inbox:data", { items: rec.inbox });
     }
-    .toast{
-      width: min(340px, 92vw);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius: 16px;
-      background: rgba(10,12,15,.92);
-      box-shadow: var(--shadow2);
-      padding: 10px 12px;
-      display:flex;
-      gap:10px;
-      transform: translateY(0);
-      opacity:1;
-      transition: opacity var(--med), transform var(--med), filter var(--med);
-      animation: toastIn 220ms var(--ease) both;
+  });
+
+  // -------------------- Groups --------------------
+  socket.on("groups:list", () => {
+    if (!requireNonGuest()) return;
+    const list = [];
+    for (const g of Object.values(groups)) {
+      if (g.members.includes(authedUser)) list.push(groupPublic(g));
     }
-    @keyframes toastIn{
-      from{ opacity:0; transform: translateY(10px); filter: blur(1px); }
-      to{ opacity:1; transform: translateY(0); filter: blur(0); }
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    socket.emit("groups:list", list);
+  });
+
+  socket.on("group:createRequest", ({ name, invites }) => {
+    if (!requireNonGuest()) return;
+
+    const groupName = String(name || "").trim() || "Unnamed Group";
+    const rawInv = Array.isArray(invites) ? invites : [];
+    const uniq = Array.from(new Set(rawInv.map(x => String(x || "").trim()).filter(Boolean)));
+
+    // cap invites to 199 so owner + 199 = 200 max potential
+    const trimmed = uniq.slice(0, 199);
+
+    // validate usernames
+    for (const u of trimmed) {
+      if (!isValidUser(u) || !users[u] || isGuestName(u)) {
+        socket.emit("sendError", { reason: "Invalid invite list." });
+        return;
+      }
     }
-    .toastDot{
-      width:10px; height:10px;
-      border-radius:99px;
-      background: var(--online);
-      box-shadow: 0 0 0 3px rgba(67,209,139,.12);
-      margin-top: 3px;
-      flex:0 0 auto;
+
+    const gid = newId("grp");
+    groups[gid] = {
+      id: gid,
+      name: groupName.slice(0, 32),
+      owner: authedUser,
+      members: [authedUser],
+      invites: trimmed.map(u => ({ id: newId("inv"), to: u, from: authedUser, ts: now() })),
+      createdAt: now()
+    };
+
+    // Send inbox invites
+    for (const inv of groups[gid].invites) {
+      addInboxItem(inv.to, {
+        id: inv.id,
+        type: "group",
+        from: authedUser,
+        text: `Invited you to “${groups[gid].name}”`,
+        ts: inv.ts,
+        meta: { groupId: gid, name: groups[gid].name }
+      });
+      const rec = users[inv.to];
+      emitToUser(inv.to, "inbox:badge", countInbox(rec));
+      emitToUser(inv.to, "inbox:data", { items: rec.inbox });
     }
-    .toastTitle{ font-weight: 950; font-size:12px; }
-    .toastMsg{ color:var(--muted); font-size:12px; }
 
-    /* ===== FOOTER ===== */
-    .footer{
-      position:fixed;
-      left: 50%;
-      transform: translateX(-50%);
-      bottom: 10px;
-      display:flex;
-      align-items:center;
-      gap:12px;
-      color: rgba(255,255,255,.55);
-      font-size: 11px;
-      z-index: 10;
-      user-select:none;
-      opacity:.85;
-      transition: opacity var(--fast), transform var(--fast);
+    persistAll();
+
+    // Update creator group list
+    socket.emit("groups:list", Object.values(groups).filter(g => g.members.includes(authedUser)).map(groupPublic));
+    socket.emit("group:meta", { groupId: gid, meta: groupPublic(groups[gid]) });
+  });
+
+  socket.on("groupInvite:accept", ({ id }) => {
+    if (!requireNonGuest()) return;
+    const inviteId = String(id || "");
+
+    // find invite across groups
+    let gFound = null;
+    let invFound = null;
+    for (const g of Object.values(groups)) {
+      const inv = (g.invites || []).find(x => x.id === inviteId && x.to === authedUser);
+      if (inv) {
+        gFound = g;
+        invFound = inv;
+        break;
+      }
     }
-    .footer:hover{ opacity:1; transform: translateX(-50%) translateY(-1px); }
-    .footer a{ color: rgba(255,255,255,.70); text-decoration:none; }
-    .footer a:hover{ text-decoration:underline; }
+    if (!gFound || !invFound) return;
 
-    /* small flourish for “dynamic” feel on focus */
-    .focusGlow{
-      position:absolute; inset:-2px;
-      border-radius: 18px;
-      pointer-events:none;
-      opacity:0;
-      background: radial-gradient(900px 240px at 50% 0%, rgba(255,255,255,.08), transparent 60%);
-      transition: opacity var(--med);
+    // cap 200
+    if (gFound.members.length >= 200) {
+      socket.emit("sendError", { reason: "Group is full (200 member cap)." });
+      return;
     }
-    .card:focus-within .focusGlow{ opacity:1; }
 
-    /* layout helpers */
-    .grow{ flex:1; min-width:0; }
-    .tight{ display:flex; align-items:center; gap:10px; }
-  </style>
-</head>
+    // add member
+    if (!gFound.members.includes(authedUser)) gFound.members.push(authedUser);
 
-<body>
-  <!-- Dotted star background -->
-  <div class="bg" aria-hidden="true">
-    <div class="starLayer l1"></div>
-    <div class="starLayer l2"></div>
-    <div class="starLayer l3"></div>
-    <div class="twinkle"></div>
-  </div>
+    // remove invite
+    gFound.invites = (gFound.invites || []).filter(x => x.id !== inviteId);
 
-  <div class="shell">
-    <div class="card" id="card">
-      <div class="focusGlow"></div>
+    // remove inbox item
+    const meRec = users[authedUser];
+    meRec.inbox = (meRec.inbox || []).filter(it => it.id !== inviteId);
 
-      <!-- Loading -->
-      <div class="loading" id="loading">
-        <div class="loader">
-          <div class="loadRow">
-            <div class="spinner"></div>
-            <div style="font-weight:950;letter-spacing:.2px">Loading</div>
-            <div class="dots" aria-hidden="true">
-              <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-            </div>
-          </div>
-          <div class="muted" id="loaderSub">syncing…</div>
-        </div>
-      </div>
+    persistAll();
 
-      <!-- Login overlay -->
-      <div class="overlay" id="loginOverlay">
-        <div class="loginCard" id="loginCard">
-          <div class="brandRow">
-            <div class="brand">tonkotsu.online</div>
-            <div class="muted tiny">compact chat</div>
-          </div>
+    // Notify group members meta update
+    const meta = groupPublic(gFound);
+    for (const m of gFound.members) {
+      emitToUser(m, "group:meta", { groupId: gFound.id, meta });
+    }
 
-          <div>
-            <div class="muted" style="margin-bottom:6px">Username (letters/numbers only, min 4)</div>
-            <input class="field" id="username" placeholder="yourname" autocomplete="username" />
-          </div>
+    socket.emit("inbox:badge", countInbox(meRec));
+    socket.emit("inbox:data", { items: meRec.inbox });
+    socket.emit("groups:list", Object.values(groups).filter(g => g.members.includes(authedUser)).map(groupPublic));
+  });
 
-          <div class="passRow">
-            <div class="muted" style="margin-bottom:6px">Password (letters/numbers only, min 4)</div>
-            <input class="field" id="password" type="password" placeholder="••••" autocomplete="current-password" />
-            <div class="eye" id="togglePass" title="Show/Hide password">
-              <span class="ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/></svg>
-              </span>
-            </div>
-          </div>
+  socket.on("groupInvite:decline", ({ id }) => {
+    if (!requireNonGuest()) return;
+    const inviteId = String(id || "");
 
-          <div class="btnRow">
-            <button class="btn primary" id="joinBtn">Log in / Create</button>
-            <button class="btn" id="guestBtn">Guest</button>
-          </div>
+    let gFound = null;
+    for (const g of Object.values(groups)) {
+      const inv = (g.invites || []).find(x => x.id === inviteId && x.to === authedUser);
+      if (inv) {
+        gFound = g;
+        break;
+      }
+    }
+    if (!gFound) return;
 
-          <div class="muted tiny" style="line-height:1.45">
-            Guests can only chat in Global and have slower cooldown.
-          </div>
-        </div>
-      </div>
+    gFound.invites = (gFound.invites || []).filter(x => x.id !== inviteId);
 
-      <!-- App -->
-      <div class="layout" id="app">
-        <div class="sidebar">
-          <!-- Inbox -->
-          <div class="row" id="inboxBtn" title="Inbox (mentions, invites, friend requests)">
-            <div class="rowLeft">
-              <span class="ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M4 4h16v12H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></svg>
-              </span>
-              <div class="nameCol">
-                <div class="rowName">Inbox</div>
-                <div class="rowSub">mentions • invites • requests</div>
-              </div>
-            </div>
-            <div class="badge" id="inboxPing">0</div>
-          </div>
+    const meRec = users[authedUser];
+    meRec.inbox = (meRec.inbox || []).filter(it => it.id !== inviteId);
 
-          <!-- Online panel -->
-          <div class="panel">
-            <div class="panelHeader">
-              <div class="panelTitle">
-                <span class="ico" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M20 7c-3 3-13 3-16 0"/><path d="M4 7v10"/><path d="M20 7v10"/><path d="M7 17h10"/></svg>
-                </span>
-                <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Online</span>
-              </div>
-              <div class="panelRight">
-                <span class="muted tiny" id="onlineCount">0</span>
-                <button class="btn small ghost" id="onlineToggle" title="Collapse/Expand">
-                  <span class="ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-                  </span>
-                </button>
-              </div>
-            </div>
-            <div class="panelBody scroll" id="onlineWrap">
-              <div style="display:flex;flex-direction:column;gap:10px;padding:10px" id="onlineList"></div>
-            </div>
-          </div>
+    persistAll();
+    socket.emit("inbox:badge", countInbox(meRec));
+    socket.emit("inbox:data", { items: meRec.inbox });
+  });
 
-          <!-- Messages -->
-          <div class="messagesPanel">
-            <div class="sectionTitle">
-              <div class="tight">
-                <span class="ico" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>
-                </span>
-                <span>Messages</span>
-              </div>
+  socket.on("group:history", ({ groupId }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = ensureGroup(gid);
+    if (!g || !g.members.includes(authedUser)) return;
 
-              <div class="tight">
-                <div class="badge" id="msgPing">0</div>
-                <button class="btn small primary" id="createGroupBtn">
-                  <span class="ico" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                  </span>
-                  <span>Create</span>
-                </button>
-              </div>
-            </div>
+    g.messages = g.messages || [];
+    socket.emit("group:history", { groupId: gid, meta: groupPublic(g), msgs: g.messages });
+  });
 
-            <div class="scroll grow" style="padding:10px">
-              <div style="display:flex;flex-direction:column;gap:10px" id="msgList"></div>
-            </div>
-          </div>
-        </div>
+  socket.on("group:send", ({ groupId, text }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = ensureGroup(gid);
+    if (!g || !g.members.includes(authedUser)) return;
 
-        <div class="main">
-          <div class="topbar">
-            <div class="titleBlock grow">
-              <div class="chatTitle" id="chatTitle">Global chat</div>
-              <div class="chatHint" id="chatHint">shared with everyone</div>
-            </div>
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (t.length > 1000) return;
 
-            <div class="mePill" id="mePill" title="Account menu">
-              <div class="statusDot online" id="meStatusDot"></div>
-              <div style="min-width:0">
-                <div class="meName" id="meName">You</div>
-                <div class="meSub" id="meSub">click for menu</div>
-              </div>
-              <span class="ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-              </span>
-            </div>
-          </div>
+    g.messages = g.messages || [];
+    const msg = { user: authedUser, text: t, ts: now() };
+    g.messages.push(msg);
+    if (g.messages.length > 400) g.messages.shift();
 
-          <div class="chatBox" id="chatBox"></div>
+    persistAll();
 
-          <div class="composer">
-            <div class="cooldown" id="cooldownRow">
-              <div id="cooldownText">0.0s</div>
-              <div class="bar"><div class="barFill" id="cdFill"></div></div>
-            </div>
+    for (const m of g.members) {
+      emitToUser(m, "group:message", { groupId: gid, msg });
+    }
 
-            <div class="composerRow">
-              <input class="field" id="message" placeholder="Type a message…" />
-              <button class="btn primary" id="sendBtn">
-                <span class="ico" aria-hidden="true">
-                  <svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
-                </span>
-                <span>Send</span>
-              </button>
-            </div>
+    // mentions -> inbox mention items
+    const mentions = extractMentions(t);
+    if (mentions.length) {
+      for (const m of mentions) {
+        if (!users[m]) continue;
+        if (m === authedUser) continue;
 
-            <div class="muted tiny" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-              <div id="cooldownLabel">Cooldown: 3s</div>
-              <div id="statusLabel">Status: Online</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+        const rec = users[m];
+        if ((rec.social?.blocked || []).includes(authedUser)) continue;
 
-  <!-- Footer -->
-  <div class="footer">
-    <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">Support on Ko-fi</a>
-    <span>•</span>
-    <span>© <span id="year"></span> All rights reserved</span>
-  </div>
+        addInboxItem(m, {
+          id: newId("inb"),
+          type: "mention",
+          from: authedUser,
+          text: `Mentioned you in group “${g.name}”: ${t.slice(0, 160)}`,
+          ts: now(),
+          meta: { scope: "group", groupId: gid, name: g.name }
+        });
 
-  <!-- Modal -->
-  <div class="modalBack" id="modalBack">
-    <div class="modal">
-      <div class="modalTop">
-        <div class="modalTitle" id="modalTitle">Modal</div>
-        <button class="btn small" id="modalClose">
-          <span class="ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>
-          </span>
-          <span>Close</span>
-        </button>
-      </div>
-      <div id="modalBody"></div>
-    </div>
-  </div>
+        persistAll();
+        emitToUser(m, "inbox:badge", countInbox(rec));
+        emitToUser(m, "inbox:data", { items: rec.inbox });
+      }
+    }
+  });
 
-  <!-- Toasts -->
-  <div class="toasts" id="toasts"></div>
+  socket.on("group:addMember", ({ groupId, user }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = ensureGroup(gid);
+    if (!g) return;
+    if (g.owner !== authedUser) return;
+
+    const target = String(user || "").trim();
+    if (!isValidUser(target) || !users[target] || isGuestName(target)) {
+      socket.emit("sendError", { reason: "User not found." });
+      return;
+    }
+    if (g.members.includes(target)) return;
+
+    if (g.members.length >= 200) {
+      socket.emit("sendError", { reason: "Group is full (200 member cap)." });
+      return;
+    }
+
+    g.members.push(target);
+    persistAll();
+
+    // Notify meta to members
+    const meta = groupPublic(g);
+    for (const m of g.members) {
+      emitToUser(m, "group:meta", { groupId: gid, meta });
+    }
+
+    // also update target group list
+    emitToUser(target, "groups:list", Object.values(groups).filter(x => x.members.includes(target)).map(groupPublic));
+  });
+
+  socket.on("group:leave", ({ groupId }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = ensureGroup(gid);
+    if (!g) return;
+    if (!g.members.includes(authedUser)) return;
+
+    // owner leaving deletes group (clean and predictable)
+    if (g.owner === authedUser) {
+      // delete group for everyone
+      const members = [...g.members];
+      delete groups[gid];
+      persistAll();
+
+      for (const m of members) {
+        emitToUser(m, "group:deleted", { groupId: gid });
+        emitToUser(m, "groups:list", Object.values(groups).filter(x => x.members.includes(m)).map(groupPublic));
+      }
+      return;
+    }
+
+    g.members = g.members.filter(x => x !== authedUser);
+    persistAll();
+
+    const meta = groupPublic(g);
+    for (const m of g.members) emitToUser(m, "group:meta", { groupId: gid, meta });
+
+    socket.emit("group:left", { groupId: gid });
+    socket.emit("groups:list", Object.values(groups).filter(x => x.members.includes(authedUser)).map(groupPublic));
+  });
+
+  socket.on("group:delete", ({ groupId }) => {
+    if (!requireNonGuest()) return;
+    const gid = String(groupId || "");
+    const g = ensureGroup(gid);
+    if (!g) return;
+    if (g.owner !== authedUser) return;
+
+    const members = [...g.members];
+    delete groups[gid];
+    persistAll();
+
+    for (const m of members) {
+      emitToUser(m, "group:deleted", { groupId: gid });
+      emitToUser(m, "groups:list", Object.values(groups).filter(x => x.members.includes(m)).map(groupPublic));
+    }
+  });
+
+  // -------------------- Online user list at connect (after auth only) --------------------
+  // (broadcastOnlineUsers is called after login/resume)
+});
+
+// -------------------- Boot --------------------
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server listening on http://localhost:${PORT}`);
+});
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/script.js"></script>
