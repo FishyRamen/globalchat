@@ -1,10 +1,12 @@
-/* public/script.js
-   - Inbox is a topbar icon (not inside the dropdown)
-   - Dynamic loading screen transitions (login/guest/logout)
-   - Settings: sounds, profanity mask, friend requests, group invites/requests, custom cursor toggle
-   - Guests: no inbox, cannot be friended, account menu shows Log in instead of Log out, no profile/inbox/leaderboard
-   - Groups: create public/private, discover public groups, join/request private groups, owner tools: cooldown + mute user + mute all
-   - Global cooldown is dynamic (server tells client)
+/* public/script.js — tonkotsu.online
+   Client goals covered here:
+   - Session resume + restored last-view per account (token + lastView)
+   - DM gating (client-side): must be friends to DM (server should also enforce)
+   - Right-click mute/unmute for Global / DM / Group (local per-account)
+   - “Don’t repeat” warning when sending identical messages consecutively
+   - Bigger / more dynamic loading copy (UI/CSS handled in index.html; JS drives text)
+   - Owner group management UI hooks (rename, transfer owner, kick, per-member cooldown, perms)
+     (Requires updated server.js to fully function; harmless if server ignores)
 */
 
 const socket = io();
@@ -56,7 +58,25 @@ if (yearEl) yearEl.textContent = String(new Date().getFullYear());
 const cursor = $("cursor");
 const cursor2 = $("cursor2");
 
-// State
+// ---------- device id (for server-side account creation limit) ----------
+function getDeviceId() {
+  let id = localStorage.getItem("tonkotsu_device_id");
+  if (!id) {
+    // lightweight uuid-ish
+    id = "dev_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+    localStorage.setItem("tonkotsu_device_id", id);
+  }
+  return id;
+}
+const deviceId = getDeviceId();
+
+// ---------- per-account local keys ----------
+function acctKey(suffix) {
+  const u = me || "guest";
+  return `tonkotsu_${u}_${suffix}`;
+}
+
+// ---------- State ----------
 let token = localStorage.getItem("tonkotsu_token") || "";
 let me = null;
 let isGuest = false;
@@ -67,6 +87,13 @@ let settings = {
   allowFriendRequests: true,
   allowGroupInvites: true,
   customCursor: true
+};
+
+// channel mutes: keys are "global", "dm:NAME", "grp:ID"
+let mutedChannels = {
+  global: false,
+  dm: {},   // { [user]: true }
+  grp: {}   // { [gid]: true }
 };
 
 let social = { friends: [], incoming: [], outgoing: [], blocked: [] };
@@ -87,6 +114,9 @@ let cooldownUntil = 0;
 let cooldownSec = 3;          // server-driven
 let manualStatus = false;
 let lastActivity = Date.now();
+
+let lastSentText = "";        // repeat-warning
+let lastSentAt = 0;
 
 // per-refresh color assignment
 const sessionSeed = Math.floor(Math.random() * 1e9).toString(16);
@@ -132,9 +162,41 @@ function maybeHideMild(text) {
   if (!settings?.hideMildProfanity) return text;
   return String(text).replace(MILD_RX, "•••");
 }
-
 function isBlockedUser(u){
   return !!social?.blocked?.includes(u);
+}
+function isFriend(u){
+  return !!social?.friends?.includes(u);
+}
+function isMutedKey(key){
+  if (!key) return false;
+  if (key === "global") return !!mutedChannels.global;
+  if (key.startsWith("dm:")) return !!mutedChannels.dm[key.slice(3)];
+  if (key.startsWith("grp:")) return !!mutedChannels.grp[key.slice(4)];
+  return false;
+}
+function setMutedKey(key, on){
+  if (!key) return;
+  if (key === "global") mutedChannels.global = !!on;
+  else if (key.startsWith("dm:")) mutedChannels.dm[key.slice(3)] = !!on;
+  else if (key.startsWith("grp:")) mutedChannels.grp[key.slice(4)] = !!on;
+  saveMutedChannels();
+}
+function saveMutedChannels(){
+  try { localStorage.setItem(acctKey("mutedChannels"), JSON.stringify(mutedChannels)); } catch {}
+}
+function loadMutedChannels(){
+  try{
+    const raw = localStorage.getItem(acctKey("mutedChannels"));
+    const parsed = JSON.parse(raw || "null");
+    if (parsed && typeof parsed === "object") {
+      mutedChannels = {
+        global: !!parsed.global,
+        dm: (parsed.dm && typeof parsed.dm === "object") ? parsed.dm : {},
+        grp: (parsed.grp && typeof parsed.grp === "object") ? parsed.grp : {}
+      };
+    }
+  }catch{}
 }
 
 // random-but-stable-per-refresh user color
@@ -152,6 +214,65 @@ function userColor(username){
   const sat = 62 + (h % 18);
   const light = 58 + ((h >> 8) % 10);
   return `hsl(${hue} ${sat}% ${light}%)`;
+}
+
+// ---------- lightweight toast ----------
+let toastRoot = null;
+function ensureToastRoot(){
+  if (toastRoot) return toastRoot;
+  toastRoot = document.createElement("div");
+  toastRoot.style.position = "fixed";
+  toastRoot.style.left = "16px";
+  toastRoot.style.bottom = "16px";
+  toastRoot.style.display = "flex";
+  toastRoot.style.flexDirection = "column";
+  toastRoot.style.gap = "10px";
+  toastRoot.style.zIndex = "99999";
+  toastRoot.style.pointerEvents = "none";
+  document.body.appendChild(toastRoot);
+  return toastRoot;
+}
+function toast(msg, kind="info"){
+  const root = ensureToastRoot();
+  const el = document.createElement("div");
+  el.style.pointerEvents = "none";
+  el.style.maxWidth = "360px";
+  el.style.border = "1px solid rgba(255,255,255,.10)";
+  el.style.borderRadius = "14px";
+  el.style.background = "rgba(12,14,20,.92)";
+  el.style.backdropFilter = "blur(10px)";
+  el.style.boxShadow = "0 18px 70px rgba(0,0,0,.55)";
+  el.style.padding = "10px 12px";
+  el.style.color = "rgba(233,238,247,.96)";
+  el.style.fontWeight = "800";
+  el.style.letterSpacing = ".1px";
+  el.style.opacity = "0";
+  el.style.transform = "translateY(8px)";
+  el.style.transition = "opacity 220ms cubic-bezier(.2,.85,.2,1), transform 220ms cubic-bezier(.2,.85,.2,1)";
+  const sub = document.createElement("div");
+  sub.textContent = String(msg || "");
+  sub.style.fontSize = "12px";
+  sub.style.lineHeight = "1.35";
+  el.appendChild(sub);
+
+  // subtle kind tint via left border
+  const tint =
+    kind === "warn" ? "rgba(255,209,102,.35)" :
+    kind === "err"  ? "rgba(255,77,77,.35)" :
+    "rgba(255,255,255,.18)";
+  el.style.borderLeft = `4px solid ${tint}`;
+
+  root.appendChild(el);
+  requestAnimationFrame(()=>{
+    el.style.opacity = "1";
+    el.style.transform = "translateY(0)";
+  });
+
+  setTimeout(()=>{
+    el.style.opacity = "0";
+    el.style.transform = "translateY(8px)";
+    setTimeout(()=> el.remove(), 260);
+  }, 1800);
 }
 
 // ---------- cursor ----------
@@ -228,13 +349,33 @@ function attachRipple(root=document){
 }
 attachRipple();
 
-// ---------- loading ----------
+// ---------- loading (more dynamic) ----------
+const LOADING_LINES = [
+  "syncing…",
+  "warming up sockets…",
+  "pulling history…",
+  "compressing vibes…",
+  "hydrating UI…",
+  "routing packets…",
+  "checking permissions…",
+  "fetching presence…"
+];
+let loadingTicker = null;
 function showLoading(text="Loading…"){
   if (loaderSub) loaderSub.textContent = text;
   if (loading) loading.classList.add("show");
+
+  // rotate subtext while visible
+  if (loadingTicker) clearInterval(loadingTicker);
+  let i = 0;
+  loadingTicker = setInterval(()=>{
+    if (!loading?.classList.contains("show")) return;
+    if (loaderSub) loaderSub.textContent = LOADING_LINES[i++ % LOADING_LINES.length];
+  }, 720);
 }
 function hideLoading(){
   if (loading) loading.classList.remove("show");
+  if (loadingTicker) { clearInterval(loadingTicker); loadingTicker = null; }
 }
 
 // ---------- modal ----------
@@ -261,17 +402,25 @@ function ensureAudio(){
 function canNotify(){
   if (myStatus === "dnd") return false;
   if (myStatus === "invisible") return false;
+
+  // respect channel mute
+  const key =
+    view.type === "global" ? "global" :
+    view.type === "dm" ? `dm:${view.id}` :
+    view.type === "group" ? `grp:${view.id}` :
+    "global";
+  // NOTE: notifications are for *incoming* events; suppression should check the *incoming scope*.
+  // We handle suppression in callers by passing scopeKey.
   return true;
 }
 function pingSound(kind="default"){
   if (!settings?.sounds) return;
-  if (!canNotify()) return;
+  if (myStatus === "dnd" || myStatus === "invisible") return;
 
   try{
     const ctx = ensureAudio();
     const t0 = ctx.currentTime;
 
-    // pleasant 2-tone + soft click
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, t0);
     master.gain.exponentialRampToValueAtTime(0.06, t0 + 0.01);
@@ -316,12 +465,13 @@ function pingSound(kind="default"){
 
 // ---------- cooldown ----------
 function canSend(){ return now() >= cooldownUntil; }
-function startCooldown(){
-  cooldownUntil = now() + Math.max(0.8, Number(cooldownSec || 3)) * 1000;
+function startCooldown(secondsOverride=null){
+  const s = Number.isFinite(Number(secondsOverride)) ? Number(secondsOverride) : Number(cooldownSec || 3);
+  cooldownUntil = now() + Math.max(0.8, s) * 1000;
 }
-function updateHints(){
+function updateHints(extraRight=""){
   hintLeft.textContent = `Cooldown: ${Number(cooldownSec || 3).toFixed(1)}s`;
-  hintRight.textContent = `Status: ${statusLabel(myStatus)}`;
+  hintRight.textContent = extraRight ? `${extraRight} • Status: ${statusLabel(myStatus)}` : `Status: ${statusLabel(myStatus)}`;
   meDot.className = `dot ${dotClass(myStatus === "invisible" ? "offline" : myStatus)}`;
 }
 
@@ -365,6 +515,12 @@ function setView(type, id=null){
     topicTitle.classList.add("clickable");
     topicTitle.onclick = ()=> openGroupInfo(id);
   }
+
+  // persist last view for this account
+  if (me) {
+    try { localStorage.setItem(acctKey("lastView"), JSON.stringify(view)); } catch {}
+  }
+
   window.__bindHover?.();
 }
 
@@ -440,36 +596,48 @@ function renderChannels(){
     type: "global",
     label: "global",
     sub: "everyone",
-    badge: inboxCounts?.ment || 0
+    badge: inboxCounts?.ment || 0,
+    muted: isMutedKey("global")
   });
 
   // DMs
   const dmUsers = Array.from(dmCache.keys()).sort((a,b)=>a.localeCompare(b));
   for (const u of dmUsers){
-    items.push({ key:`dm:${u}`, type:"dm", id:u, label:u, sub:"dm", badge:0 });
+    items.push({
+      key:`dm:${u}`,
+      type:"dm",
+      id:u,
+      label:u,
+      sub:isFriend(u) ? "dm" : "dm (add friend)",
+      badge:0,
+      muted: isMutedKey(`dm:${u}`)
+    });
   }
 
   // Groups (only ones you're in)
-  const groups = Array.from(groupMeta.values()).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-  for (const g of groups){
+  const groupsArr = Array.from(groupMeta.values()).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  for (const g of groupsArr){
     items.push({
       key:`grp:${g.id}`,
       type:"group",
       id:g.id,
       label:g.name,
       sub:`${(g.members||[]).length} members • ${g.privacy || "private"}`,
-      badge:0
+      badge:0,
+      muted: isMutedKey(`grp:${g.id}`)
     });
   }
 
   channelList.innerHTML = items.map(it=>{
     const badgeNum = Number(it.badge || 0);
+    const hashIcon = it.type === "dm" ? "@" : "#";
+    const mutedMark = it.muted ? " 🔇" : "";
     return `
       <div class="item" data-key="${esc(it.key)}" data-type="${esc(it.type)}" data-id="${esc(it.id||"")}">
         <div class="left">
-          <div class="hash">${it.type === "dm" ? "@" : "#"}</div>
+          <div class="hash">${hashIcon}</div>
           <div class="nameCol">
-            <div class="name">${esc(it.label)}</div>
+            <div class="name">${esc(it.label)}${mutedMark}</div>
             <div class="sub">${esc(it.sub)}</div>
           </div>
         </div>
@@ -486,6 +654,13 @@ function renderChannels(){
       if (t === "global") openGlobal();
       if (t === "dm") openDM(id);
       if (t === "group") openGroup(id);
+    });
+
+    // right click mute/unmute
+    el.addEventListener("contextmenu", (e)=>{
+      e.preventDefault();
+      const key = el.getAttribute("data-key");
+      openChannelContextMenu(e.clientX, e.clientY, key);
     });
   });
 
@@ -514,6 +689,73 @@ function renderOnline(){
   attachRipple(onlineList);
 }
 
+// ---------- context menu (mute/unmute channels) ----------
+let ctxMenu = null;
+function closeCtxMenu(){
+  if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; }
+}
+addEventListener("click", closeCtxMenu);
+addEventListener("scroll", closeCtxMenu, { passive:true });
+addEventListener("resize", closeCtxMenu);
+
+function openChannelContextMenu(x, y, key){
+  closeCtxMenu();
+  if (!me) return;
+
+  const muted = isMutedKey(key);
+  ctxMenu = document.createElement("div");
+  ctxMenu.style.position = "fixed";
+  ctxMenu.style.left = x + "px";
+  ctxMenu.style.top = y + "px";
+  ctxMenu.style.transform = "translate(0, 0)";
+  ctxMenu.style.zIndex = "99998";
+  ctxMenu.style.border = "1px solid rgba(255,255,255,.12)";
+  ctxMenu.style.borderRadius = "14px";
+  ctxMenu.style.background = "rgba(12,14,20,.96)";
+  ctxMenu.style.backdropFilter = "blur(12px)";
+  ctxMenu.style.boxShadow = "0 18px 70px rgba(0,0,0,.60)";
+  ctxMenu.style.padding = "8px";
+  ctxMenu.style.minWidth = "220px";
+
+  const title = document.createElement("div");
+  title.textContent = key === "global" ? "# global" : key;
+  title.style.fontWeight = "950";
+  title.style.opacity = ".9";
+  title.style.padding = "8px 10px 6px 10px";
+  title.style.fontSize = "12px";
+  ctxMenu.appendChild(title);
+
+  const line = document.createElement("div");
+  line.style.height = "1px";
+  line.style.background = "rgba(255,255,255,.08)";
+  line.style.margin = "4px 6px 8px 6px";
+  ctxMenu.appendChild(line);
+
+  const btn = document.createElement("button");
+  btn.className = "btn small";
+  btn.style.width = "100%";
+  btn.textContent = muted ? "Unmute" : "Mute";
+  btn.addEventListener("click", ()=>{
+    setMutedKey(key, !muted);
+    toast(muted ? "Unmuted." : "Muted.", "info");
+    renderChannels();
+    closeCtxMenu();
+  });
+  ctxMenu.appendChild(btn);
+
+  // keep inside viewport
+  document.body.appendChild(ctxMenu);
+  const r = ctxMenu.getBoundingClientRect();
+  const pad = 10;
+  let nx = x, ny = y;
+  if (r.right > innerWidth - pad) nx = Math.max(pad, innerWidth - pad - r.width);
+  if (r.bottom > innerHeight - pad) ny = Math.max(pad, innerHeight - pad - r.height);
+  ctxMenu.style.left = nx + "px";
+  ctxMenu.style.top = ny + "px";
+
+  attachRipple(ctxMenu);
+}
+
 // ---------- open views ----------
 function openGlobal(){
   showLoading("Opening #global…");
@@ -534,6 +776,12 @@ function openDM(user){
     return;
   }
   if (!user) return;
+
+  // client-side rule: must be friends
+  if (!isFriend(user)) {
+    openModal("DMs", `<div class="muted">You can only DM friends. Add <b style="color:var(--text)">${esc(user)}</b> first.</div>`);
+    return;
+  }
 
   showLoading("Opening DM…");
   setTimeout(()=>{
@@ -565,14 +813,56 @@ function openGroup(gid){
 }
 
 // ---------- send ----------
+function looksLikeRepeat(text){
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (!lastSentText) return false;
+  if (t.toLowerCase() !== lastSentText.toLowerCase()) return false;
+
+  // only warn if close in time (avoid nagging for legit repeats later)
+  return (now() - lastSentAt) < 45000;
+}
+
+// simple mention anti-spam hint (server should enforce real rate limits)
+function tooManyMentions(text){
+  const t = String(text || "");
+  const matches = t.match(/@([A-Za-z0-9]{4,20})/g);
+  const n = matches ? matches.length : 0;
+  return n >= 6;
+}
+
 function sendCurrent(){
   if (!me) return;
   const text = (messageEl.value || "").trim();
   if (!text) return;
 
+  // repeat warning
+  if (looksLikeRepeat(text)) {
+    toast("Don’t repeat the same message.", "warn");
+    updateHints("Warning");
+    // still allow sending, but nudge; uncomment to block:
+    // return;
+  }
+
+  if (tooManyMentions(text)) {
+    toast("Too many mentions in one message.", "warn");
+    // allow, but warn (server will enforce if desired)
+  }
+
   if (!canSend()) return;
+
+  // per-view rules
+  if (view.type === "dm" && !isFriend(view.id)) {
+    toast("You can only DM friends.", "err");
+    return;
+  }
+
+  // optimistic cooldown start (server still authoritative)
   startCooldown();
   messageEl.value = "";
+
+  lastSentText = text;
+  lastSentAt = now();
 
   if (view.type === "global") socket.emit("sendGlobal", { text });
   if (view.type === "dm") socket.emit("dm:send", { to: view.id, text });
@@ -760,7 +1050,7 @@ function openSettings(){
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
           <div style="font-weight:950">Sounds</div>
-          <div class="muted tiny">Pings for mentions / DMs / group</div>
+          <div class="muted tiny">Pings for mentions / DMs / groups</div>
         </div>
         <button class="btn small" id="togSounds">${draft.sounds ? "On" : "Off"}</button>
       </div>
@@ -784,7 +1074,7 @@ function openSettings(){
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px;display:flex;justify-content:space-between;align-items:center;gap:10px">
         <div>
           <div style="font-weight:950">Group invites / requests</div>
-          <div class="muted tiny">Allow group invites and join requests</div>
+          <div class="muted tiny">Allow invites and join requests</div>
         </div>
         <button class="btn small" id="togGR">${draft.allowGroupInvites ? "On" : "Off"}</button>
       </div>
@@ -872,6 +1162,9 @@ function openProfile(user){
     return;
   }
 
+  const stFriend = friendState(user);
+  const canDM = (!isGuest && !isSelf && stFriend === "friends");
+
   openModal("Profile", `
     <div style="display:flex;flex-direction:column;gap:12px">
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
@@ -901,7 +1194,7 @@ function openProfile(user){
 
       ${(!isGuest && !isSelf && user) ? `
         <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
-          <button class="btn" id="btnDM">DM</button>
+          <button class="btn" id="btnDM" ${canDM ? "" : "disabled"}>${canDM ? "DM" : "DM (friends only)"}</button>
           <button class="btn primary" id="btnFriend">Add friend</button>
           <button class="btn" id="btnBlock">Block</button>
         </div>
@@ -921,7 +1214,7 @@ function openProfile(user){
 
   // action buttons
   const dm = $("btnDM");
-  if (dm) dm.onclick = ()=>{ closeModal(); openDM(user); };
+  if (dm && canDM) dm.onclick = ()=>{ closeModal(); openDM(user); };
 
   const friendBtn = $("btnFriend");
   if (friendBtn) {
@@ -944,7 +1237,7 @@ function openProfile(user){
   socket.emit("profile:get", { user });
 }
 
-// ---------- group info ----------
+// ---------- group info (owner tools expanded) ----------
 function openGroupInfo(groupId){
   const meta = groupMeta.get(groupId);
   if (!meta) return openModal("Group info", `<div class="muted">No group info.</div>`);
@@ -955,6 +1248,9 @@ function openGroupInfo(groupId){
   const cooldown = Number(meta.cooldownSec || 2.5).toFixed(1);
 
   const isOwner = (!isGuest && owner === me);
+
+  // permissions (optional; server-controlled)
+  const perms = meta.perms || {}; // e.g. { invite: ["user1"], mod: ["user2"] }
 
   openModal("Group info", `
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -969,18 +1265,27 @@ function openGroupInfo(groupId){
 
       <div style="border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.02);padding:12px">
         <div style="font-weight:950;margin-bottom:8px">Members</div>
-        <div class="scroll" style="max-height:240px">
-          ${members.map(u=>`
-            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0">
-              <div class="tiny" style="color:${userColor(u)};font-weight:950">${esc(u)}${u===owner ? " (owner)" : ""}</div>
-              ${isOwner && u!==owner ? `
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <button class="btn small" data-mute="${esc(u)}">Mute</button>
-                  <button class="btn small" data-unmute="${esc(u)}">Unmute</button>
-                </div>
-              ` : ``}
-            </div>
-          `).join("")}
+        <div class="scroll" style="max-height:260px">
+          ${members.map(u=>{
+            const isUOwner = (u === owner);
+            const canInvite = Array.isArray(perms.invite) ? perms.invite.includes(u) : false;
+            return `
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0">
+                <div class="tiny" style="color:${userColor(u)};font-weight:950">${esc(u)}${isUOwner ? " (owner)" : ""}</div>
+
+                ${isOwner && !isUOwner ? `
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                    <button class="btn small" data-mute="${esc(u)}">Mute</button>
+                    <button class="btn small" data-unmute="${esc(u)}">Unmute</button>
+                    <button class="btn small" data-kick="${esc(u)}" style="border-color:rgba(255,77,77,.25)">Remove</button>
+                    <button class="btn small" data-perm-invite="${esc(u)}">${canInvite ? "Invite: On" : "Invite: Off"}</button>
+                    <button class="btn small" data-transfer="${esc(u)}">Make owner</button>
+                    <button class="btn small" data-mcd="${esc(u)}">Member cooldown</button>
+                  </div>
+                ` : ``}
+              </div>
+            `;
+          }).join("")}
         </div>
       </div>
 
@@ -996,11 +1301,22 @@ function openGroupInfo(groupId){
           <div class="muted tiny">Group cooldown (seconds, 1.0–10.0)</div>
           <input class="field" id="gcCooldown" placeholder="2.5" value="${esc(String(Number(meta.cooldownSec || 2.5).toFixed(1)))}" />
 
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn small" id="cancelGroupCooldown">Cancel cooldown</button>
+            <button class="btn small" id="saveGroupSettings">Save cooldown</button>
+          </div>
+
+          <div class="muted tiny">Rename group (1–32)</div>
+          <input class="field" id="gcRename" placeholder="new name" value="${esc(String(meta.name||""))}" />
+
+          <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
+            <button class="btn" id="renameGroupBtn">Rename</button>
+          </div>
+
           <div class="muted tiny">Invite friend (must be your friend)</div>
           <input class="field" id="addMemberName" placeholder="username" />
 
           <div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="saveGroupSettings">Save</button>
             <button class="btn primary" id="inviteMemberBtn">Invite</button>
             <button class="btn" id="deleteGroupBtn" style="border-color:rgba(255,77,77,.25)">Delete group</button>
           </div>
@@ -1038,9 +1354,26 @@ function openGroupInfo(groupId){
     socket.emit("group:settings", { groupId, cooldownSec: clamp(v, 1, 10) });
   });
 
+  $("cancelGroupCooldown")?.addEventListener("click", ()=>{
+    // new server hook (optional)
+    socket.emit("group:cooldownCancel", { groupId });
+    toast("Group cooldown cancelled.", "info");
+  });
+
+  $("renameGroupBtn")?.addEventListener("click", ()=>{
+    const name = String(($("gcRename")?.value || "").trim()).slice(0, 32);
+    if (!name) return;
+    // new server hook (optional)
+    socket.emit("group:rename", { groupId, name });
+  });
+
   $("inviteMemberBtn")?.addEventListener("click", ()=>{
     const name = ($("addMemberName")?.value || "").trim();
     if (!isValidUser(name)) return;
+    if (!isFriend(name)) {
+      toast("You can only invite friends.", "warn");
+      return;
+    }
     socket.emit("group:invite", { groupId, user: name });
     $("addMemberName").value = "";
   });
@@ -1051,6 +1384,75 @@ function openGroupInfo(groupId){
   });
   modalBody.querySelectorAll("[data-unmute]").forEach(b=>{
     b.onclick = ()=> socket.emit("group:muteUser", { groupId, user: b.getAttribute("data-unmute"), on: false });
+  });
+
+  // remove member (kick)
+  modalBody.querySelectorAll("[data-kick]").forEach(b=>{
+    b.onclick = ()=>{
+      const target = b.getAttribute("data-kick");
+      openModal("Remove member", `
+        <div class="muted" style="line-height:1.45">Remove <b style="color:var(--text)">${esc(target)}</b> from this group?</div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+          <button class="btn" id="cancelKick">Cancel</button>
+          <button class="btn primary" id="confirmKick" style="border-color:rgba(255,77,77,.30)">Remove</button>
+        </div>
+      `);
+      $("cancelKick").onclick = ()=>{ closeModal(); openGroupInfo(groupId); };
+      $("confirmKick").onclick = ()=>{ socket.emit("group:kick", { groupId, user: target }); closeModal(); };
+    };
+  });
+
+  // transfer ownership
+  modalBody.querySelectorAll("[data-transfer]").forEach(b=>{
+    b.onclick = ()=>{
+      const target = b.getAttribute("data-transfer");
+      openModal("Transfer ownership", `
+        <div class="muted" style="line-height:1.45">
+          Make <b style="color:var(--text)">${esc(target)}</b> the new owner? You will lose owner controls.
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+          <button class="btn" id="cancelTr">Cancel</button>
+          <button class="btn primary" id="confirmTr">Transfer</button>
+        </div>
+      `);
+      $("cancelTr").onclick = ()=>{ closeModal(); openGroupInfo(groupId); };
+      $("confirmTr").onclick = ()=>{ socket.emit("group:transferOwner", { groupId, to: target }); closeModal(); };
+    };
+  });
+
+  // toggle invite permission per member (optional server hook)
+  modalBody.querySelectorAll("[data-perm-invite]").forEach(b=>{
+    b.onclick = ()=>{
+      const target = b.getAttribute("data-perm-invite");
+      socket.emit("group:perm", { groupId, user: target, perm: "invite" });
+      toast("Updated permission.", "info");
+    };
+  });
+
+  // per-member cooldown (optional server hook)
+  modalBody.querySelectorAll("[data-mcd]").forEach(b=>{
+    b.onclick = ()=>{
+      const target = b.getAttribute("data-mcd");
+      openModal("Member cooldown", `
+        <div class="muted tiny">Set a per-member cooldown (seconds) for <b style="color:var(--text)">${esc(target)}</b>.</div>
+        <div style="margin-top:10px">
+          <div class="muted tiny">Seconds (0 = cancel)</div>
+          <input class="field" id="mcdVal" placeholder="3.0" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">
+          <button class="btn" id="mcdCancel">Cancel</button>
+          <button class="btn primary" id="mcdSave">Save</button>
+        </div>
+      `);
+      $("mcdCancel").onclick = ()=>{ closeModal(); openGroupInfo(groupId); };
+      $("mcdSave").onclick = ()=>{
+        const v = Number(($("mcdVal")?.value || "").trim());
+        if (!Number.isFinite(v)) return;
+        if (v <= 0) socket.emit("group:memberCooldownClear", { groupId, user: target });
+        else socket.emit("group:memberCooldown", { groupId, user: target, seconds: clamp(v, 0.5, 20) });
+        closeModal();
+      };
+    };
   });
 }
 
@@ -1096,7 +1498,10 @@ createGroupBtn.addEventListener("click", ()=>{
     const invites = invitesRaw ? invitesRaw.split(",").map(s=>s.trim()).filter(Boolean) : [];
     const unique = Array.from(new Set(invites)).slice(0, 50);
 
-    for (const u of unique) if (!isValidUser(u)) return openModal("Create group", `<div class="muted">Invites must be usernames (letters/numbers only, 4–20).</div>`);
+    for (const u of unique) {
+      if (!isValidUser(u)) return openModal("Create group", `<div class="muted">Invites must be usernames (letters/numbers only, 4–20).</div>`);
+      if (!isFriend(u)) return openModal("Create group", `<div class="muted">You can only invite friends. ${esc(u)} is not your friend.</div>`);
+    }
 
     closeModal();
     socket.emit("group:createRequest", { name, invites: unique, privacy: isPublic ? "public" : "private" });
@@ -1133,12 +1538,12 @@ joinBtn?.addEventListener("click", ()=>{
     return openModal("Login", `<div class="muted">${esc(explainLoginFail(u,p))}</div>`);
   }
   showLoading("Logging in…");
-  socket.emit("login", { username: u, password: p, guest: false });
+  socket.emit("login", { username: u, password: p, guest: false, deviceId });
 });
 
 guestBtn?.addEventListener("click", ()=>{
   showLoading("Joining as guest…");
-  socket.emit("login", { guest: true });
+  socket.emit("login", { guest: true, deviceId });
 });
 
 passwordEl?.addEventListener("keydown",(e)=>{
@@ -1149,7 +1554,7 @@ passwordEl?.addEventListener("keydown",(e)=>{
 function tryResume(){
   if (!token) return;
   showLoading("Resuming session…");
-  socket.emit("resume", { token });
+  socket.emit("resume", { token, deviceId });
 }
 
 // ---------- socket events ----------
@@ -1171,6 +1576,9 @@ socket.on("loginSuccess", (data)=>{
   settings = { ...settings, ...(data.settings || {}) };
   social = data.social || social;
   myStatus = data.status || "online";
+
+  // load per-account muted channels
+  loadMutedChannels();
 
   // guest settings override (client-only)
   if (isGuest) {
@@ -1199,7 +1607,17 @@ socket.on("loginSuccess", (data)=>{
     loginOverlay.classList.add("hidden");
     hideLoading();
 
-    setView("global");
+    // initial view: restore last view if possible
+    let restored = null;
+    try{
+      restored = JSON.parse(localStorage.getItem(acctKey("lastView")) || "null");
+    }catch{}
+    if (restored && restored.type && (restored.type === "global" || restored.type === "dm" || restored.type === "group")) {
+      setView(restored.type, restored.id ?? null);
+    } else {
+      setView("global");
+    }
+
     socket.emit("requestGlobalHistory");
 
     if (!isGuest) {
@@ -1208,12 +1626,19 @@ socket.on("loginSuccess", (data)=>{
       socket.emit("inbox:get");
       socket.emit("cooldown:get");
     } else {
-      // guests still get cooldown info
       socket.emit("cooldown:get");
     }
 
     renderChannels();
     idleLoop();
+
+    // open restored view after metadata comes in
+    setTimeout(()=>{
+      const v = view;
+      if (v.type === "dm" && v.id) openDM(v.id);
+      else if (v.type === "group" && v.id) openGroup(v.id);
+      else openGlobal();
+    }, 120);
   }, 280);
 });
 
@@ -1277,9 +1702,11 @@ socket.on("globalMessage", (msg)=>{
 
   if (view.type === "global") addMessageToUI(msg, "global");
 
-  if (me && typeof msg.text === "string") {
+  // notifications: global channel mute
+  const scopeKey = "global";
+  if (!isMutedKey(scopeKey) && me && typeof msg.text === "string") {
     const hit = msg.text.toLowerCase().includes(`@${me.toLowerCase()}`);
-    if (hit && canNotify()) pingSound("mention");
+    if (hit && myStatus !== "dnd" && myStatus !== "invisible") pingSound("mention");
   }
 });
 
@@ -1301,7 +1728,10 @@ socket.on("dm:message", ({ from, msg }={})=>{
 
   const inDM = (view.type === "dm" && view.id === from);
   if (inDM) addMessageToUI(msg, "dm");
-  else if (canNotify()) pingSound("dm");
+  else {
+    const scopeKey = `dm:${from}`;
+    if (!isMutedKey(scopeKey) && myStatus !== "dnd" && myStatus !== "invisible") pingSound("dm");
+  }
 
   renderChannels();
 });
@@ -1316,7 +1746,8 @@ socket.on("groups:list", (list)=>{
       members:g.members || [],
       privacy: g.privacy || "private",
       cooldownSec: g.cooldownSec ?? 2.5,
-      mutedAll: !!g.mutedAll
+      mutedAll: !!g.mutedAll,
+      perms: g.perms || {}
     });
   });
   renderChannels();
@@ -1355,7 +1786,7 @@ socket.on("groups:discover:data", ({ items }={})=>{
 
 socket.on("group:history", ({ groupId, meta, msgs }={})=>{
   if (!groupId) return;
-  if (meta) groupMeta.set(groupId, meta);
+  if (meta) groupMeta.set(groupId, { ...groupMeta.get(groupId), ...meta });
   groupCache.set(groupId, Array.isArray(msgs) ? msgs : []);
 
   setView("group", groupId);
@@ -1372,14 +1803,18 @@ socket.on("group:message", ({ groupId, msg }={})=>{
 
   const inGroup = (view.type === "group" && view.id === groupId);
   if (inGroup) addMessageToUI(msg, "group");
-  else if (canNotify()) pingSound("default");
+  else {
+    const scopeKey = `grp:${groupId}`;
+    if (!isMutedKey(scopeKey) && myStatus !== "dnd" && myStatus !== "invisible") pingSound("default");
+  }
 
   renderChannels();
 });
 
 socket.on("group:meta", ({ groupId, meta }={})=>{
   if (!groupId || !meta) return;
-  groupMeta.set(groupId, meta);
+  groupMeta.set(groupId, { ...groupMeta.get(groupId), ...meta });
+
   if (view.type === "group" && view.id === groupId) {
     topicTitle.textContent = `# ${meta.name}`;
     topicSub.textContent = `${meta.privacy || "private"} • group chat`;
@@ -1475,10 +1910,24 @@ socket.on("leaderboard:data", ({ items }={})=>{
   `);
 });
 
-socket.on("social:update", (s)=>{ if (s) social = s; });
+socket.on("social:update", (s)=>{
+  if (s) {
+    social = s;
+    renderChannels(); // DM labels may change to “dm” once friended
+  }
+});
 
 socket.on("sendError", ({ reason }={})=>{
-  if (reason) openModal("Error", `<div class="muted">${esc(reason)}</div>`);
+  if (reason) {
+    toast(String(reason), "err");
+    openModal("Error", `<div class="muted">${esc(reason)}</div>`);
+  }
+});
+
+// (optional) stats pings from server
+socket.on("me:stats", (info)=>{
+  if (!info) return;
+  if (info.leveled) toast(`Level up! You’re now level ${info.level}.`, "info");
 });
 
 // ---------- boot ----------
