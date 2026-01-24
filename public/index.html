@@ -31,6 +31,8 @@
       --radius: 14px;
       --h: 34px;
       --compact: 10px;
+
+      --glow: 0 0 0 8px rgba(255,255,255,.04), 0 0 36px rgba(255,255,255,.10);
     }
 
     *{ box-sizing:border-box; }
@@ -84,7 +86,7 @@
     #cursor{
       width:10px; height:10px; border-radius:999px;
       background: rgba(255,255,255,.9);
-      box-shadow: 0 0 0 8px rgba(255,255,255,.06), 0 0 24px rgba(255,255,255,.14);
+      box-shadow: var(--glow);
       transition: width var(--fast), height var(--fast), opacity var(--med);
     }
     #cursor2{
@@ -126,34 +128,56 @@
       to  { opacity:1; transform: translateY(0) scale(1); filter: blur(0); }
     }
 
-    /* top loading overlay */
+    /* top loading overlay (bigger, more “popup”) */
     .loading{
       position:absolute; inset:0;
       display:none;
       align-items:center;
       justify-content:center;
-      background: rgba(0,0,0,.72);
-      backdrop-filter: blur(10px);
+      background:
+        radial-gradient(820px 540px at 50% 45%, rgba(255,255,255,.06), transparent 55%),
+        rgba(0,0,0,.78);
+      backdrop-filter: blur(12px);
       z-index: 50;
       opacity:0;
       transition: opacity var(--med);
+      padding: 16px;
     }
     .loading.show{ display:flex; opacity:1; }
+
     .loader{
-      width:min(380px, 92vw);
+      width:min(520px, 94vw);
       border:1px solid var(--stroke);
-      border-radius: 16px;
+      border-radius: 18px;
       background: rgba(10,12,18,.94);
-      padding: 14px;
-      box-shadow: 0 14px 60px rgba(0,0,0,.55);
+      padding: 16px 16px 14px 16px;
+      box-shadow: 0 18px 80px rgba(0,0,0,.62);
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
+      animation: pop var(--med) both;
+      position:relative;
+      overflow:hidden;
+    }
+    .loader::before{
+      content:"";
+      position:absolute; inset:-2px;
+      background:
+        radial-gradient(520px 260px at 18% 20%, rgba(255,255,255,.08), transparent 55%),
+        radial-gradient(520px 260px at 85% 90%, rgba(255,255,255,.05), transparent 60%);
+      pointer-events:none;
+      opacity:.9;
+      filter: blur(0px);
+    }
+    .loaderInner{
+      position:relative;
       display:flex;
       flex-direction:column;
       gap: 10px;
-      animation: pop var(--med) both;
     }
     @keyframes pop{
-      from{ opacity:0; transform: translateY(10px); filter: blur(1px); }
-      to  { opacity:1; transform: translateY(0); filter: blur(0); }
+      from{ opacity:0; transform: translateY(10px) scale(.99); filter: blur(1px); }
+      to  { opacity:1; transform: translateY(0) scale(1); filter: blur(0); }
     }
     .spin{
       width:18px; height:18px;
@@ -163,6 +187,26 @@
       animation: spin 650ms linear infinite;
     }
     @keyframes spin{ to{ transform: rotate(360deg);} }
+
+    /* subtle progress bar (driven by JS if desired) */
+    .loadBar{
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      overflow:hidden;
+    }
+    .loadFill{
+      height:100%;
+      width: 22%;
+      background: rgba(255,255,255,.18);
+      animation: loadWiggle 1.25s ease-in-out infinite;
+    }
+    @keyframes loadWiggle{
+      0%   { transform: translateX(-12%); width: 28%; opacity:.85; }
+      50%  { transform: translateX(40%); width: 44%; opacity:1; }
+      100% { transform: translateX(-12%); width: 28%; opacity:.85; }
+    }
 
     /* layout */
     .layout{ flex:1; min-height:0; display:flex; }
@@ -523,9 +567,11 @@
       padding: 0 12px;
       font-size: 11px;
       color: rgba(255,255,255,.62);
+      gap: 12px;
     }
     .footer a{ color: rgba(255,255,255,.74); text-decoration:none; }
     .footer a:hover{ text-decoration:underline; }
+    .footerLinks{ display:flex; gap: 12px; align-items:center; flex-wrap:wrap; }
 
     /* login overlay */
     .loginOverlay{
@@ -665,6 +711,83 @@
       to{ opacity:0; transform: translate(-50%,-50%) scale(22); }
     }
 
+    /* toast / warnings */
+    .toasts{
+      position:fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 120;
+      display:flex;
+      flex-direction:column;
+      gap: 10px;
+      pointer-events:none;
+      max-width: min(420px, calc(100vw - 36px));
+    }
+    .toast{
+      pointer-events:none;
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(12,14,20,.92);
+      backdrop-filter: blur(10px);
+      border-radius: 14px;
+      padding: 10px 12px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.55);
+      animation: toastIn var(--med) both;
+    }
+    .toastTitle{ font-weight:950; margin-bottom:4px; }
+    .toastBody{ color: rgba(255,255,255,.72); }
+    .toast.warn{ border-color: rgba(255,77,77,.22); }
+    @keyframes toastIn{
+      from{ opacity:0; transform: translateY(10px); filter: blur(1px); }
+      to  { opacity:1; transform: translateY(0); filter: blur(0); }
+    }
+
+    /* right-click context menu */
+    .ctx{
+      position:fixed;
+      z-index: 110;
+      display:none;
+      min-width: 220px;
+      border:1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+      background: rgba(12,14,20,.94);
+      box-shadow: 0 22px 80px rgba(0,0,0,.62);
+      backdrop-filter: blur(12px);
+      padding: 8px;
+    }
+    .ctx.show{ display:block; }
+    .ctxItem{
+      height: 34px;
+      border-radius: 12px;
+      border:1px solid transparent;
+      background: transparent;
+      color: rgba(255,255,255,.88);
+      width:100%;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding: 0 10px;
+      cursor:pointer;
+      user-select:none;
+      font-weight: 950;
+      transition: background var(--fast), border-color var(--fast), transform var(--fast);
+    }
+    .ctxItem:hover{
+      background: rgba(255,255,255,.05);
+      border-color: rgba(255,255,255,.08);
+      transform: translateY(-1px);
+    }
+    .ctxSep{
+      height:1px;
+      background: rgba(255,255,255,.08);
+      margin: 6px 6px;
+    }
+    .ctxHint{
+      padding: 6px 10px;
+      color: rgba(255,255,255,.55);
+      font-size: 11px;
+      line-height:1.35;
+    }
+
     /* reduced motion */
     @media (prefers-reduced-motion: reduce){
       *{ animation:none !important; transition:none !important; }
@@ -680,16 +803,25 @@
   <div id="cursor"></div>
   <div id="cursor2"></div>
 
+  <!-- toast / warnings -->
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- right-click menu (mute/unmute channels, etc; populated by script.js) -->
+  <div class="ctx" id="ctxMenu" role="menu" aria-hidden="true"></div>
+
   <div class="shell">
     <div class="frame" id="frame">
 
-      <div class="loading" id="loading">
-        <div class="loader">
-          <div style="display:flex;align-items:center;gap:10px">
-            <div class="spin"></div>
-            <div style="font-weight:950">Loading</div>
+      <div class="loading" id="loading" aria-hidden="true">
+        <div class="loader" role="status" aria-live="polite">
+          <div class="loaderInner">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="spin"></div>
+              <div style="font-weight:950;font-size:13px">Loading</div>
+            </div>
+            <div class="muted tiny" id="loaderSub">syncing…</div>
+            <div class="loadBar" aria-hidden="true"><div class="loadFill"></div></div>
           </div>
-          <div class="muted tiny" id="loaderSub">syncing…</div>
         </div>
       </div>
 
@@ -701,14 +833,14 @@
 
             <div>
               <div class="muted tiny" style="margin-bottom:6px">Username (letters/numbers only, 4–20)</div>
-              <input class="field" id="username" placeholder="yourname" autocomplete="username"/>
+              <input class="field" id="username" placeholder="yourname" autocomplete="username" spellcheck="false"/>
             </div>
 
             <div>
               <div class="muted tiny" style="margin-bottom:6px">Password (letters/numbers only, 4–32)</div>
               <div class="pwWrap">
-                <input class="field pw" id="password" type="password" placeholder="••••" autocomplete="current-password"/>
-                <div class="eye" id="togglePass" title="Show/Hide">👁</div>
+                <input class="field pw" id="password" type="password" placeholder="••••" autocomplete="current-password" spellcheck="false"/>
+                <div class="eye" id="togglePass" title="Show/Hide" aria-label="Show/Hide password">👁</div>
               </div>
             </div>
 
@@ -729,8 +861,8 @@
           <div class="leftHeader">
             <div class="brand">tonkotsu.online</div>
             <div class="leftHeaderRight">
-              <button class="btn small ghost" id="discoverGroupsBtn" title="Discover groups">🔎</button>
-              <button class="btn small ghost" id="createGroupBtn" title="Create group">+</button>
+              <button class="btn small ghost" id="discoverGroupsBtn" title="Discover groups" aria-label="Discover groups">🔎</button>
+              <button class="btn small ghost" id="createGroupBtn" title="Create group" aria-label="Create group">+</button>
             </div>
           </div>
 
@@ -752,11 +884,11 @@
 
             <div class="rightTop">
               <div class="inboxBtnWrap" id="inboxBtnWrap">
-                <button class="btn ghost iconBtn" id="inboxBtn" title="Inbox">✉</button>
+                <button class="btn ghost iconBtn" id="inboxBtn" title="Inbox" aria-label="Inbox">✉</button>
                 <div class="inboxBadgeMini" id="inboxBadgeMini">0</div>
               </div>
 
-              <div class="mePill" id="mePill" title="Account menu">
+              <div class="mePill" id="mePill" title="Account menu" aria-label="Account menu">
                 <div class="dot online" id="meDot"></div>
                 <div class="meName" id="meName">You</div>
                 <div class="caret">▾</div>
@@ -768,7 +900,7 @@
 
           <div class="composer">
             <div class="row">
-              <input class="field" id="message" placeholder="Message… (@user to mention)"/>
+              <input class="field" id="message" placeholder="Message… (@user to mention)" autocomplete="off" spellcheck="false"/>
               <button class="btn primary" id="sendBtn">Send</button>
             </div>
             <div class="muted tiny" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -780,7 +912,10 @@
       </div>
 
       <div class="footer">
-        <div><a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">Ko-fi</a></div>
+        <div class="footerLinks">
+          <a href="https://ko-fi.com/fishy_x1" target="_blank" rel="noreferrer">Ko-fi</a>
+          <a href="https://github.com/fishyramen" target="_blank" rel="noreferrer">GitHub</a>
+        </div>
         <div>© <span id="year"></span> All rights reserved</div>
       </div>
     </div>
