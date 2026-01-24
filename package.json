@@ -1,12 +1,8 @@
 {
   "name": "tonkotsu-online",
   "version": "1.0.0",
-  "private": true,
-  "type": "module",
   "main": "server.js",
-  "engines": {
-    "node": ">=20"
-  },
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
