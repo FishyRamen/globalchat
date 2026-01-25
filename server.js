@@ -419,7 +419,14 @@ app.use((req, res, next) => {
 });
 
 // Static files (if you serve index.html/script.js from same service)
-app.use(express.static(process.cwd(), { extensions: ["html"] }));
+// Serve frontend from /public
+const PUBLIC_DIR = path.join(__dirname, "public");
+app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
+
+// Ensure "/" always works
+app.get("/", (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+});
 
 const server = http.createServer(app);
 
