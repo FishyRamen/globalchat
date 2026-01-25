@@ -1,896 +1,1270 @@
-<!-- public/index.html — tonkotsu.online -->
-<!-- Black-only theme. No inbox/settings on login screen. App shell mounts after auth. -->
+<!-- public/index.html -->
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"
-    />
-    <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#000000" />
-    <title>tonkotsu.online</title>
-
-    <style>
-      /* ============================================================
-         GLOBAL RESET + BLACK THEME (NO LIGHT THEME FALLBACKS)
-         ============================================================ */
-
-      :root {
-        --bg0: #000000;
-        --bg1: #07070b;
-        --bg2: #0b0b10;
-        --bg3: #101018;
-        --fg0: #ffffff;
-        --fg1: rgba(255, 255, 255, 0.92);
-        --fg2: rgba(255, 255, 255, 0.72);
-        --fg3: rgba(255, 255, 255, 0.55);
-
-        --line0: rgba(255, 255, 255, 0.08);
-        --line1: rgba(255, 255, 255, 0.12);
-        --line2: rgba(255, 255, 255, 0.16);
-
-        --good: #29ffb2;
-        --warn: #ffcc66;
-        --bad: #ff4b6e;
-        --accent: #7a5cff; /* subtle purple */
-        --accent2: #22d3ee; /* cyan */
-        --glow: rgba(122, 92, 255, 0.35);
-
-        --shadow: 0 12px 60px rgba(0, 0, 0, 0.75);
-        --shadow2: 0 22px 90px rgba(0, 0, 0, 0.85);
-
-        --r-lg: 18px;
-        --r-md: 14px;
-        --r-sm: 12px;
-
-        --pad-lg: 20px;
-        --pad-md: 14px;
-        --pad-sm: 10px;
-
-        --text-xl: 18px;
-        --text-lg: 16px;
-        --text-md: 14px;
-        --text-sm: 12.5px;
-
-        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-          "Liberation Mono", "Courier New", monospace;
-        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-          Arial, "Apple Color Emoji", "Segoe UI Emoji";
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-      html,
-      body {
-        height: 100%;
-        background: var(--bg0);
-        color: var(--fg0);
-        margin: 0;
-        font-family: var(--sans);
-        -webkit-font-smoothing: antialiased;
-        text-rendering: geometricPrecision;
-        overflow: hidden; /* app handles scroll */
-      }
-
-      ::selection {
-        background: rgba(122, 92, 255, 0.35);
-      }
-
-      a {
-        color: inherit;
-        text-decoration: none;
-      }
-
-      button,
-      input {
-        font: inherit;
-        color: inherit;
-        outline: none;
-      }
-
-      /* ============================================================
-         BACKGROUND AESTHETIC
-         ============================================================ */
-      .bg {
-        position: fixed;
-        inset: 0;
-        background: radial-gradient(
-            1200px 800px at 30% 15%,
-            rgba(122, 92, 255, 0.12),
-            transparent 55%
-          ),
-          radial-gradient(
-            1200px 800px at 75% 70%,
-            rgba(34, 211, 238, 0.08),
-            transparent 55%
-          ),
-          radial-gradient(
-            900px 700px at 50% 55%,
-            rgba(255, 255, 255, 0.045),
-            transparent 60%
-          ),
-          linear-gradient(180deg, var(--bg0), var(--bg2));
-        filter: saturate(115%);
-        z-index: 0;
-      }
-
-      .grain {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
-        mix-blend-mode: overlay;
-        opacity: 0.25;
-        z-index: 1;
-      }
-
-      /* ============================================================
-         CUSTOM CURSOR (DEFAULT ENABLED; BIGGER + DYNAMIC)
-         script.js will attach & animate it; CSS provides baseline.
-         ============================================================ */
-      body.cursor-on {
-        cursor: none;
-      }
-
-      .cursor {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 18px;
-        height: 18px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        box-shadow: 0 0 20px rgba(122, 92, 255, 0.18);
-        transform: translate(-50%, -50%);
-        pointer-events: none;
-        z-index: 99999;
-        opacity: 0;
-        transition: opacity 160ms ease;
-      }
-      body.cursor-on .cursor {
-        opacity: 1;
-      }
-
-      .cursorDot {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: rgba(122, 92, 255, 0.85);
-        box-shadow: 0 0 18px rgba(122, 92, 255, 0.55);
-        transform: translate(-50%, -50%);
-        pointer-events: none;
-        z-index: 100000;
-        opacity: 0;
-        transition: opacity 160ms ease;
-      }
-      body.cursor-on .cursorDot {
-        opacity: 1;
-      }
-
-      /* ============================================================
-         LAYOUT SHELL
-         ============================================================ */
-      #app {
-        position: relative;
-        z-index: 2;
-        height: 100%;
-        display: grid;
-        grid-template-columns: 1fr;
-        grid-template-rows: 1fr;
-      }
-
-      /* ============================================================
-         LOGIN OVERLAY (NO INBOX/SETTINGS HERE)
-         ============================================================ */
-      .auth {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        padding: 28px;
-      }
-
-      .authCard {
-        width: min(520px, 96vw);
-        border-radius: var(--r-lg);
-        background: linear-gradient(180deg, rgba(16, 16, 24, 0.92), rgba(9, 9, 14, 0.9));
-        border: 1px solid var(--line1);
-        box-shadow: var(--shadow2);
-        overflow: hidden;
-      }
-
-      .authHeader {
-        padding: 22px 22px 14px 22px;
-        border-bottom: 1px solid var(--line0);
-        background: radial-gradient(
-            900px 400px at 15% 0%,
-            rgba(122, 92, 255, 0.18),
-            transparent 60%
-          ),
-          radial-gradient(
-            900px 400px at 85% 40%,
-            rgba(34, 211, 238, 0.12),
-            transparent 60%
-          );
-      }
-
-      .brandRow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-      }
-
-      .brand {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .brandTitle {
-        font-size: 22px;
-        letter-spacing: 0.2px;
-        font-weight: 750;
-        line-height: 1.05;
-      }
-
-      .brandSub {
-        color: var(--fg2);
-        font-size: var(--text-md);
-        line-height: 1.35;
-        max-width: 40ch;
-      }
-
-      .betaPill {
-        font-family: var(--mono);
-        font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.04);
-        color: rgba(255, 255, 255, 0.82);
-        white-space: nowrap;
-      }
-
-      .authBody {
-        padding: 18px 22px 22px 22px;
-        display: grid;
-        gap: 14px;
-      }
-
-      .field {
-        display: grid;
-        gap: 8px;
-      }
-
-      .labelRow {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 10px;
-      }
-
-      label {
-        font-size: var(--text-sm);
-        color: var(--fg2);
-      }
-
-      .hint {
-        font-size: var(--text-sm);
-        color: var(--fg3);
-      }
-
-      .input {
-        width: 100%;
-        padding: 12px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.55);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        font-size: var(--text-lg); /* slightly larger */
-        transition: border 140ms ease, transform 140ms ease;
-      }
-
-      .input:focus {
-        border-color: rgba(122, 92, 255, 0.45);
-        transform: translateY(-1px);
-      }
-
-      .btnRow {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 6px;
-      }
-
-      .btn {
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.06);
-        border-radius: var(--r-md);
-        padding: 12px 12px;
-        font-weight: 700;
-        font-size: var(--text-lg);
-        cursor: pointer;
-        transition: transform 120ms ease, background 120ms ease, border 120ms ease;
-        user-select: none;
-      }
-
-      .btn:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.09);
-        border-color: rgba(255, 255, 255, 0.16);
-      }
-
-      .btn:active {
-        transform: translateY(0px);
-      }
-
-      .btnPrimary {
-        border-color: rgba(122, 92, 255, 0.35);
-        background: linear-gradient(
-          180deg,
-          rgba(122, 92, 255, 0.22),
-          rgba(122, 92, 255, 0.1)
-        );
-        box-shadow: 0 0 0 1px rgba(122, 92, 255, 0.08), 0 14px 50px rgba(122, 92, 255, 0.12);
-      }
-
-      .btnPrimary:hover {
-        border-color: rgba(122, 92, 255, 0.5);
-      }
-
-      .divider {
-        height: 1px;
-        background: rgba(255, 255, 255, 0.08);
-        margin: 8px 0 4px;
-      }
-
-      .footRow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        color: var(--fg3);
-        font-size: var(--text-sm);
-      }
-
-      .smallLink {
-        color: rgba(255, 255, 255, 0.78);
-        text-decoration: underline;
-        text-underline-offset: 3px;
-        cursor: pointer;
-      }
-
-      .err {
-        min-height: 18px;
-        font-size: var(--text-sm);
-        color: var(--bad);
-      }
-
-      .ok {
-        min-height: 18px;
-        font-size: var(--text-sm);
-        color: var(--good);
-      }
-
-      /* ============================================================
-         LOADING SCREEN (quick after logging in)
-         ============================================================ */
-      .loading {
-        position: absolute;
-        inset: 0;
-        display: none;
-        place-items: center;
-        background: rgba(0, 0, 0, 0.65);
-        backdrop-filter: blur(10px);
-        z-index: 10;
-      }
-      .loading.show {
-        display: grid;
-      }
-
-      .loadingCard {
-        width: min(520px, 96vw);
-        padding: 22px;
-        border-radius: var(--r-lg);
-        background: linear-gradient(180deg, rgba(16, 16, 24, 0.9), rgba(9, 9, 14, 0.88));
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: var(--shadow2);
-      }
-
-      .loadTitle {
-        font-size: 18px;
-        font-weight: 760;
-        letter-spacing: 0.2px;
-      }
-
-      .loadSub {
-        margin-top: 8px;
-        color: var(--fg2);
-        font-size: var(--text-md);
-        line-height: 1.4;
-      }
-
-      .bar {
-        margin-top: 14px;
-        height: 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.55);
-        overflow: hidden;
-      }
-
-      .bar > div {
-        height: 100%;
-        width: 0%;
-        border-radius: 999px;
-        background: linear-gradient(90deg, rgba(122, 92, 255, 0.55), rgba(34, 211, 238, 0.45));
-        box-shadow: 0 0 30px rgba(122, 92, 255, 0.22);
-        transition: width 140ms ease;
-      }
-
-      /* ============================================================
-         APP UI (hidden until authenticated)
-         ============================================================ */
-      .shell {
-        height: 100%;
-        display: none; /* script shows after auth */
-        grid-template-columns: 340px 1fr; /* left chat list + main */
-        grid-template-rows: 1fr;
-        gap: 0;
-      }
-
-      .shell.show {
-        display: grid;
-      }
-
-      .left {
-        height: 100%;
-        border-right: 1px solid var(--line0);
-        background: linear-gradient(180deg, rgba(8, 8, 12, 0.9), rgba(0, 0, 0, 0.92));
-        display: flex;
-        flex-direction: column;
-        min-width: 300px;
-      }
-
-      .leftTop {
-        padding: 16px 16px 12px;
-        border-bottom: 1px solid var(--line0);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .userMini {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-
-      .userName {
-        font-weight: 760;
-        font-size: 16px;
-        line-height: 1.1;
-      }
-
-      .userMeta {
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--fg3);
-      }
-
-      .pill {
-        font-family: var(--mono);
-        font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.04);
-        color: rgba(255, 255, 255, 0.82);
-        white-space: nowrap;
-      }
-
-      .tabs {
-        padding: 10px 10px 12px;
-        display: grid;
-        gap: 8px;
-      }
-
-      .tabBtn {
-        width: 100%;
-        text-align: left;
-        padding: 12px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.04);
-        cursor: pointer;
-        transition: transform 120ms ease, background 120ms ease, border 120ms ease;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        font-weight: 720;
-        font-size: 15px;
-      }
-
-      .tabBtn:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.07);
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-
-      .tabBtn.active {
-        border-color: rgba(122, 92, 255, 0.35);
-        background: linear-gradient(
-          180deg,
-          rgba(122, 92, 255, 0.18),
-          rgba(122, 92, 255, 0.08)
-        );
-        box-shadow: 0 0 0 1px rgba(122, 92, 255, 0.06);
-      }
-
-      .badgeCount {
-        font-family: var(--mono);
-        font-size: 12px;
-        padding: 4px 8px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.5);
-        color: rgba(255, 255, 255, 0.8);
-        min-width: 34px;
-        text-align: center;
-      }
-
-      .leftFooter {
-        margin-top: auto;
-        padding: 12px 12px 14px;
-        border-top: 1px solid var(--line0);
-        display: flex;
-        gap: 10px;
-      }
-
-      .smallBtn {
-        flex: 1;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.05);
-        padding: 10px 10px;
-        cursor: pointer;
-        font-weight: 720;
-        transition: transform 120ms ease, background 120ms ease, border 120ms ease;
-      }
-
-      .smallBtn:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.16);
-      }
-
-      .main {
-        height: 100%;
-        display: grid;
-        grid-template-rows: auto 1fr auto;
-        background: linear-gradient(180deg, rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.9));
-      }
-
-      .mainTop {
-        padding: 14px 16px;
-        border-bottom: 1px solid var(--line0);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .roomTitle {
-        font-weight: 800;
-        font-size: 17px;
-        letter-spacing: 0.2px;
-      }
-
-      .roomMeta {
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--fg3);
-      }
-
-      .mainMid {
-        overflow: auto;
-        padding: 16px;
-      }
-
-      .mainMid::-webkit-scrollbar {
-        width: 10px;
-      }
-      .mainMid::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.10);
-        border-radius: 999px;
-      }
-      .mainMid::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.4);
-      }
-
-      .composer {
-        padding: 12px 12px 14px;
-        border-top: 1px solid var(--line0);
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-      }
-
-      .composerInput {
-        width: 100%;
-        padding: 12px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.55);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        font-size: 15px;
-      }
-
-      .sendBtn {
-        border-radius: var(--r-md);
-        border: 1px solid rgba(122, 92, 255, 0.35);
-        background: linear-gradient(
-          180deg,
-          rgba(122, 92, 255, 0.22),
-          rgba(122, 92, 255, 0.1)
-        );
-        padding: 12px 16px;
-        cursor: pointer;
-        font-weight: 760;
-        transition: transform 120ms ease, background 120ms ease, border 120ms ease;
-      }
-
-      .sendBtn:hover {
-        transform: translateY(-1px);
-        border-color: rgba(122, 92, 255, 0.5);
-      }
-
-      /* responsive */
-      @media (max-width: 900px) {
-        .shell.show {
-          grid-template-columns: 1fr;
-        }
-        .left {
-          display: none; /* mobile can be added later; keep simple */
-        }
-      }
-
-      /* ============================================================
-         MESSAGE STYLES (used by script.js)
-         ============================================================ */
-      .msg {
-        max-width: 860px;
-        padding: 12px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.10);
-        background: rgba(255, 255, 255, 0.04);
-        margin-bottom: 10px;
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
-      }
-
-      .msgTop {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 6px;
-      }
-
-      .msgUser {
-        font-weight: 780;
-        letter-spacing: 0.2px;
-        font-size: 14.5px;
-      }
-
-      .msgTime {
-        font-family: var(--mono);
-        font-size: 11.5px;
-        color: var(--fg3);
-      }
-
-      .msgText {
-        font-size: 14.5px;
-        line-height: 1.45;
-        color: var(--fg1);
-        word-break: break-word;
-        white-space: pre-wrap;
-      }
-
-      .sys {
-        opacity: 0.85;
-        border-style: dashed;
-        background: rgba(255, 255, 255, 0.03);
-      }
-
-      .toastWrap {
-        position: fixed;
-        left: 50%;
-        bottom: 18px;
-        transform: translateX(-50%);
-        z-index: 9999;
-        width: min(560px, 92vw);
-        display: grid;
-        gap: 10px;
-        pointer-events: none;
-      }
-
-      .toast {
-        pointer-events: none;
-        padding: 12px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.75);
-        backdrop-filter: blur(8px);
-        color: rgba(255, 255, 255, 0.92);
-        box-shadow: var(--shadow);
-        font-size: 13px;
-        line-height: 1.35;
-      }
-    </style>
-  </head>
-
-  <body class="cursor-on">
-    <div class="bg"></div>
-    <div class="grain"></div>
-
-    <!-- custom cursor elements (script animates) -->
-    <div class="cursor" id="cursor"></div>
-    <div class="cursorDot" id="cursorDot"></div>
-
-    <div id="app">
-      <!-- AUTH (LOGIN) -->
-      <section class="auth" id="authView" aria-label="Authentication">
-        <div class="authCard">
-          <div class="authHeader">
-            <div class="brandRow">
-              <div class="brand">
-                <div class="brandTitle">tonkotsu.online</div>
-                <div class="brandSub">
-                  Secure, fast chat. First login creates the account. After that, the password must match.
-                </div>
-              </div>
-              <div class="betaPill">BETA</div>
-            </div>
-          </div>
-
-          <div class="authBody">
-            <div class="field">
-              <div class="labelRow">
-                <label for="username">Username</label>
-                <div class="hint">4–20 letters/numbers</div>
-              </div>
-              <input
-                id="username"
-                class="input"
-                autocomplete="username"
-                spellcheck="false"
-                inputmode="text"
-                placeholder="e.g. lazeblaze"
-                maxlength="20"
-              />
-            </div>
-
-            <div class="field">
-              <div class="labelRow">
-                <label for="password">Password</label>
-                <div class="hint">4–72 chars</div>
-              </div>
-              <input
-                id="password"
-                class="input"
-                type="password"
-                autocomplete="current-password"
-                spellcheck="false"
-                placeholder="Enter password"
-                maxlength="72"
-              />
-            </div>
-
-            <div class="btnRow">
-              <button class="btn btnPrimary" id="btnLogin" type="button">Log in / Create</button>
-              <button class="btn" id="btnGuest" type="button">Continue as Guest</button>
-            </div>
-
-            <div class="divider"></div>
-
-            <div id="authMsg" class="err"></div>
-
-            <div class="footRow">
-              <div>Global chat is public and logged.</div>
-              <div class="smallLink" id="btnStatus">Status</div>
-            </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <title>tonkotsu.online</title>
+
+  <!-- Socket.IO served by server/server.js -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    /* ================================
+       tonkotsu.online — Black Theme UI
+       (CSS embedded per your request)
+       ================================ */
+
+    :root{
+      --bg:#000;
+      --panel:#070707;
+      --panel2:#0b0b0b;
+      --line:#151515;
+      --line2:#1c1c1c;
+
+      --txt:#f2f2f2;
+      --muted:#a8a8a8;
+      --soft:#cfcfcf;
+
+      --good:#1ee38a;
+      --warn:#ffd369;
+      --bad:#ff4d6d;
+
+      --shadow: 0 12px 40px rgba(0,0,0,.65);
+      --r: 16px;
+
+      --fs: 14px;
+      --fs2: 12px;
+
+      --cursorSize: 18px; /* bigger by default */
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:radial-gradient(1200px 800px at 50% 20%, #0b0b0b 0%, #000 60%, #000 100%);
+      color:var(--txt);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      font-size:var(--fs);
+      overflow:hidden;
+      cursor:none; /* custom cursor always on */
+    }
+
+    a{color:inherit}
+    button, input{
+      font:inherit;
+      color:inherit;
+      background:transparent;
+      border:0;
+      outline:none;
+    }
+
+    /* Custom cursor (dynamic, bigger, always enabled) */
+    #cursor{
+      position:fixed;
+      left:0; top:0;
+      width:var(--cursorSize);
+      height:var(--cursorSize);
+      border-radius:999px;
+      pointer-events:none;
+      z-index:999999;
+      transform:translate(-50%,-50%);
+      background:rgba(255,255,255,.95);
+      mix-blend-mode:difference;
+      box-shadow: 0 0 0 2px rgba(255,255,255,.12), 0 10px 30px rgba(0,0,0,.5);
+      transition: width .08s ease, height .08s ease, transform .05s linear;
+    }
+    #cursor.ring{
+      background:rgba(255,255,255,.0);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 0 0 8px rgba(255,255,255,.08);
+    }
+    #cursor.big{
+      width:26px; height:26px;
+    }
+
+    /* App shell */
+    .app{
+      height:100%;
+      display:grid;
+      grid-template-rows: 54px 1fr;
+    }
+
+    /* Top bar */
+    .topbar{
+      height:54px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 14px;
+      border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(15,15,15,.9), rgba(0,0,0,.55));
+      backdrop-filter: blur(10px);
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      user-select:none;
+    }
+    .logo{
+      width:28px; height:28px;
+      border-radius:10px;
+      background: linear-gradient(135deg, rgba(255,255,255,.9), rgba(255,255,255,.2));
+      box-shadow: 0 10px 30px rgba(0,0,0,.6);
+    }
+    .brand b{letter-spacing:.5px}
+    .statusRow{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      color:var(--muted);
+      font-size:var(--fs2);
+    }
+    .pill{
+      padding:6px 10px;
+      border:1px solid var(--line2);
+      border-radius:999px;
+      background:rgba(10,10,10,.6);
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .dot{
+      width:8px; height:8px;
+      border-radius:99px;
+      background:var(--muted);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.05);
+    }
+    .dot.good{background:var(--good)}
+    .dot.bad{background:var(--bad)}
+    .btn{
+      padding:8px 12px;
+      border-radius:12px;
+      border:1px solid var(--line2);
+      background:rgba(10,10,10,.55);
+      box-shadow: 0 8px 26px rgba(0,0,0,.45);
+      cursor:none;
+      user-select:none;
+      transition: transform .08s ease, border-color .1s ease, background .1s ease;
+    }
+    .btn:hover{transform:translateY(-1px); border-color:#2a2a2a; background:rgba(14,14,14,.75)}
+    .btn:active{transform:translateY(0px) scale(.99)}
+    .btn.danger{border-color:rgba(255,77,109,.35)}
+    .btn.small{padding:6px 10px; border-radius:10px; font-size:var(--fs2)}
+    .btn.ghost{background:rgba(0,0,0,.2); box-shadow:none}
+
+    /* Main area (3 columns) */
+    .main{
+      height:100%;
+      display:grid;
+      grid-template-columns: 320px 1fr 340px;
+      gap:10px;
+      padding:10px;
+    }
+
+    .panel{
+      background:linear-gradient(180deg, rgba(12,12,12,.9), rgba(0,0,0,.75));
+      border:1px solid var(--line);
+      border-radius:var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+    }
+    .panelHeader{
+      padding:12px 12px 10px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      background:rgba(0,0,0,.35);
+    }
+    .panelHeader h3{
+      margin:0;
+      font-size:13px;
+      letter-spacing:.7px;
+      text-transform:uppercase;
+      color:var(--soft);
+    }
+
+    /* Left: rooms */
+    .roomsList{
+      padding:10px;
+      overflow:auto;
+    }
+    .roomsList::-webkit-scrollbar{width:10px}
+    .roomsList::-webkit-scrollbar-thumb{background:#141414; border-radius:10px}
+    .roomsList::-webkit-scrollbar-track{background:#050505}
+
+    .roomItem{
+      padding:10px;
+      border:1px solid var(--line);
+      background:rgba(6,6,6,.75);
+      border-radius:14px;
+      margin-bottom:10px;
+      cursor:none;
+      transition: transform .08s ease, border-color .1s ease, background .1s ease;
+    }
+    .roomItem:hover{transform:translateY(-1px); border-color:#262626; background:rgba(10,10,10,.85)}
+    .roomItem.active{border-color:rgba(255,255,255,.25); background:rgba(14,14,14,.9)}
+    .roomTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .roomName{
+      font-weight:700;
+      letter-spacing:.2px;
+    }
+    .roomMeta{
+      margin-top:6px;
+      color:var(--muted);
+      font-size:var(--fs2);
+      line-height:1.35;
+    }
+    .tag{
+      padding:4px 8px;
+      border:1px solid var(--line2);
+      border-radius:999px;
+      color:var(--muted);
+      font-size:var(--fs2);
+      background:rgba(0,0,0,.35);
+    }
+
+    /* Center: chat */
+    .chatBody{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+    .chatHead{
+      padding:12px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .chatTitle{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+    }
+    .chatTitle b{font-size:16px}
+    .topic{
+      color:var(--muted);
+      font-size:var(--fs2);
+    }
+
+    .messages{
+      padding:12px;
+      overflow:auto;
+      min-height:0;
+    }
+    .messages::-webkit-scrollbar{width:10px}
+    .messages::-webkit-scrollbar-thumb{background:#141414; border-radius:10px}
+    .messages::-webkit-scrollbar-track{background:#050505}
+
+    .msg{
+      padding:10px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(6,6,6,.7);
+      margin-bottom:10px;
+    }
+    .msg.system{
+      border-color:#1c1c1c;
+      background:rgba(3,3,3,.55);
+      color:var(--muted);
+    }
+    .msgTop{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+      font-size:var(--fs2);
+      color:var(--muted);
+    }
+    .msgUser{
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .badge{
+      padding:3px 7px;
+      border-radius:999px;
+      border:1px solid var(--line2);
+      background:rgba(0,0,0,.35);
+      color:var(--muted);
+      font-size:11px;
+    }
+    .msgText{
+      white-space:pre-wrap;
+      word-break:break-word;
+      line-height:1.35;
+    }
+
+    .composer{
+      padding:12px;
+      border-top:1px solid var(--line);
+      background:rgba(0,0,0,.35);
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .input{
+      flex:1;
+      border:1px solid var(--line2);
+      background:rgba(6,6,6,.75);
+      border-radius:14px;
+      padding:10px 12px;
+      color:var(--txt);
+    }
+    .input::placeholder{color:#7a7a7a}
+
+    /* Right: settings / user / admin tools */
+    .rightWrap{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+    .card{
+      margin:10px;
+      border:1px solid var(--line);
+      background:rgba(6,6,6,.75);
+      border-radius:14px;
+      padding:10px;
+    }
+    .row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin:8px 0;
+      color:var(--muted);
+      font-size:var(--fs2);
+    }
+    .row b{color:var(--txt); font-size:13px}
+    .hr{
+      height:1px;
+      background:var(--line);
+      margin:10px 0;
+    }
+    .miniInput{
+      width:100%;
+      border:1px solid var(--line2);
+      background:rgba(0,0,0,.35);
+      border-radius:12px;
+      padding:9px 10px;
+      margin-top:6px;
+      color:var(--txt);
+    }
+    .help{
+      color:var(--muted);
+      font-size:var(--fs2);
+      line-height:1.4;
+    }
+
+    /* Auth modal / quick loader */
+    #overlay{
+      position:fixed;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,.72);
+      backdrop-filter: blur(10px);
+      z-index:10000;
+    }
+    #overlay.hidden{display:none}
+
+    .modal{
+      width:min(520px, calc(100% - 24px));
+      border-radius:18px;
+      border:1px solid #1a1a1a;
+      background:linear-gradient(180deg, rgba(12,12,12,.92), rgba(0,0,0,.86));
+      box-shadow: 0 25px 80px rgba(0,0,0,.75);
+      overflow:hidden;
+    }
+    .modalHead{
+      padding:14px 14px 10px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .modalHead b{font-size:15px; letter-spacing:.2px}
+    .modalBody{padding:14px}
+    .grid2{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+    }
+    .label{
+      color:var(--muted);
+      font-size:var(--fs2);
+      margin-bottom:6px;
+    }
+    .error{
+      margin-top:10px;
+      padding:10px;
+      border-radius:14px;
+      border:1px solid rgba(255,77,109,.35);
+      background:rgba(255,77,109,.08);
+      color:#ff9bb0;
+      display:none;
+      font-size:var(--fs2);
+      line-height:1.35;
+    }
+    .error.show{display:block}
+
+    .loader{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding:18px;
+      color:var(--muted);
+      font-size:var(--fs2);
+    }
+    .spin{
+      width:18px; height:18px;
+      border-radius:99px;
+      border:2px solid #1d1d1d;
+      border-top-color:#f2f2f2;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Toast */
+    #toast{
+      position:fixed;
+      left:50%;
+      bottom:14px;
+      transform:translateX(-50%);
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid var(--line2);
+      background:rgba(0,0,0,.75);
+      box-shadow: 0 18px 60px rgba(0,0,0,.8);
+      color:var(--soft);
+      z-index:20000;
+      display:none;
+      font-size:var(--fs2);
+      max-width:min(860px, calc(100% - 28px));
+    }
+    #toast.show{display:block}
+
+    /* Responsive */
+    @media (max-width: 1020px){
+      .main{grid-template-columns: 280px 1fr}
+      .panel.right{display:none}
+    }
+    @media (max-width: 760px){
+      .main{grid-template-columns: 1fr}
+      .panel.left{display:none}
+      body{overflow:auto; cursor:auto}
+      #cursor{display:none}
+    }
+  </style>
+</head>
+
+<body>
+  <div id="cursor"></div>
+  <div id="toast"></div>
+
+  <!-- Auth + Loading Overlay -->
+  <div id="overlay">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modalHead">
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            <b>tonkotsu.online</b><br/>
+            <span style="color:var(--muted);font-size:var(--fs2)">Sign in to join public group chats</span>
           </div>
         </div>
-      </section>
+        <button class="btn small ghost" id="btnReload">Reload</button>
+      </div>
 
-      <!-- QUICK LOADING SCREEN AFTER LOGIN -->
-      <section class="loading" id="loadingView" aria-label="Loading">
-        <div class="loadingCard">
-          <div class="loadTitle" id="loadTitle">Signing you in…</div>
-          <div class="loadSub" id="loadSub">
-            Establishing a secure session and connecting to chat servers.
-          </div>
-          <div class="bar"><div id="loadBar"></div></div>
-        </div>
-      </section>
-
-      <!-- MAIN APP SHELL -->
-      <section class="shell" id="shell" aria-label="App Shell">
-        <aside class="left" aria-label="Sidebar">
-          <div class="leftTop">
-            <div class="userMini">
-              <div class="userName" id="meName">—</div>
-              <div class="userMeta" id="meMeta">LEVEL 1 • ONLINE 0</div>
-            </div>
-            <div class="pill" id="betaPill2">BETA</div>
-          </div>
-
-          <div class="tabs">
-            <button class="tabBtn active" id="tabGlobal" type="button">
-              <span>Global</span>
-              <span class="badgeCount" id="globalCount">—</span>
-            </button>
-
-            <button class="tabBtn" id="tabInbox" type="button">
-              <span>Inbox</span>
-              <span class="badgeCount" id="inboxCount">0</span>
-            </button>
-
-            <button class="tabBtn" id="tabSettings" type="button">
-              <span>Settings</span>
-              <span class="badgeCount" id="settingsDot">•</span>
-            </button>
-          </div>
-
-          <div class="leftFooter">
-            <button class="smallBtn" id="btnLogout" type="button">Log out</button>
-            <button class="smallBtn" id="btnPing" type="button">Reconnect</button>
-          </div>
-        </aside>
-
-        <main class="main" aria-label="Main">
-          <header class="mainTop">
+      <div class="modalBody">
+        <!-- IMPORTANT: no inbox shown on login screen. -->
+        <div id="authForm">
+          <div class="grid2">
             <div>
-              <div class="roomTitle" id="roomTitle">Global</div>
-              <div class="roomMeta" id="roomMeta">Public room • Be respectful</div>
+              <div class="label">Username</div>
+              <input id="authUser" class="miniInput" placeholder="username (4-20 chars)" autocomplete="username" />
             </div>
-            <div class="pill" id="onlinePill">ONLINE 0</div>
-          </header>
+            <div>
+              <div class="label">Password</div>
+              <input id="authPass" class="miniInput" placeholder="password" type="password" autocomplete="current-password" />
+            </div>
+          </div>
 
-          <section class="mainMid" id="feed" aria-label="Messages">
-            <!-- script.js renders messages here -->
-          </section>
+          <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
+            <button class="btn" id="btnLogin">Login / Create Account</button>
+            <button class="btn" id="btnGuest">Continue as Guest</button>
+          </div>
 
-          <footer class="composer" aria-label="Composer">
-            <input
-              id="composer"
-              class="composerInput"
-              placeholder="Type a message…"
-              autocomplete="off"
-              spellcheck="true"
-            />
-            <button id="btnSend" class="sendBtn" type="button">Send</button>
-          </footer>
-        </main>
-      </section>
+          <div class="error" id="authErr"></div>
 
-      <!-- TOASTS -->
-      <div class="toastWrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+          <div class="help" style="margin-top:12px">
+            Login creates an account if it does not exist yet. Guest mode creates a temporary account.
+          </div>
+        </div>
+
+        <div id="quickLoader" class="loader" style="display:none">
+          <div class="spin"></div>
+          <div>Loading your rooms…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <b>tonkotsu.online</b><br />
+          <span style="color:var(--muted);font-size:var(--fs2)">Public group chats</span>
+        </div>
+      </div>
+
+      <div class="statusRow">
+        <div class="pill">
+          <div id="netDot" class="dot"></div>
+          <span id="netText">offline</span>
+        </div>
+        <div class="pill">
+          <span>online</span>
+          <b id="onlineCount" style="color:var(--txt)">0</b>
+        </div>
+        <div class="pill">
+          <span>me</span>
+          <b id="meName" style="color:var(--txt)">—</b>
+        </div>
+        <button class="btn small danger" id="btnLogout">Logout</button>
+      </div>
     </div>
 
-    <!-- Socket.IO from the server -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/script.js"></script>
-  </body>
-</html>
+    <div class="main">
+      <!-- Left panel: Public rooms -->
+      <div class="panel left">
+        <div class="panelHeader">
+          <h3>Public Rooms</h3>
+          <button class="btn small" id="btnRefreshRooms">Refresh</button>
+        </div>
+        <div class="roomsList" id="roomsList"></div>
+      </div>
 
+      <!-- Center: Chat -->
+      <div class="panel">
+        <div class="chatHead">
+          <div class="chatTitle">
+            <b id="roomTitle">—</b>
+            <div class="topic" id="roomTopic">—</div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <span class="tag" id="roleTag">member</span>
+            <button class="btn small" id="btnJoinGlobal">Join Global</button>
+          </div>
+        </div>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="composer">
+          <input id="msgInput" class="input" placeholder="Type a message… (Enter to send)" />
+          <button class="btn" id="btnSend">Send</button>
+        </div>
+      </div>
+
+      <!-- Right: Settings / Admin -->
+      <div class="panel right">
+        <div class="panelHeader">
+          <h3>Settings & Tools</h3>
+          <button class="btn small" id="btnPing">Ping</button>
+        </div>
+
+        <div class="rightWrap" style="overflow:auto">
+          <div class="card">
+            <div class="row"><b>Account</b><span id="meMeta">—</span></div>
+            <div class="hr"></div>
+            <div class="help">
+              Owner/admin tools are enabled by the server and will work if your role permits it.
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="row"><b>Room Admin</b><span id="adminHint">—</span></div>
+            <div class="help">Target username (exact). These actions require owner/admin.</div>
+            <input id="adminTarget" class="miniInput" placeholder="target username" />
+            <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap">
+              <button class="btn small" id="btnPromote">Promote</button>
+              <button class="btn small" id="btnDemote">Demote</button>
+              <button class="btn small danger" id="btnBan">Ban</button>
+              <button class="btn small" id="btnUnban">Unban</button>
+            </div>
+            <div class="hr"></div>
+            <div class="help">Set topic (owner/admin):</div>
+            <input id="topicInput" class="miniInput" placeholder="room topic (max 140)" />
+            <button class="btn small" id="btnSetTopic" style="margin-top:10px">Update Topic</button>
+          </div>
+
+          <div class="card">
+            <div class="row"><b>Debug</b><span id="dbg">—</span></div>
+            <div class="help">
+              If login/guest fails, check that <span style="color:var(--soft)">server/server.js</span> is running and that
+              <span style="color:var(--soft)">/api/status</span> returns ok.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ================================
+       tonkotsu.online — Frontend Logic
+       - Black theme CSS is above
+       - Custom cursor enabled by default
+       - Quick loader after auth
+       - Buttons wired
+       - Public group rooms
+       - Owner/admin controls via sockets
+       ================================ */
+
+    // --------- DOM helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const el = {
+      cursor: $("cursor"),
+      toast: $("toast"),
+      overlay: $("overlay"),
+      authForm: $("authForm"),
+      authUser: $("authUser"),
+      authPass: $("authPass"),
+      authErr: $("authErr"),
+      btnLogin: $("btnLogin"),
+      btnGuest: $("btnGuest"),
+      btnReload: $("btnReload"),
+      quickLoader: $("quickLoader"),
+
+      netDot: $("netDot"),
+      netText: $("netText"),
+      onlineCount: $("onlineCount"),
+      meName: $("meName"),
+      meMeta: $("meMeta"),
+      btnLogout: $("btnLogout"),
+
+      roomsList: $("roomsList"),
+      btnRefreshRooms: $("btnRefreshRooms"),
+
+      roomTitle: $("roomTitle"),
+      roomTopic: $("roomTopic"),
+      roleTag: $("roleTag"),
+      btnJoinGlobal: $("btnJoinGlobal"),
+
+      messages: $("messages"),
+      msgInput: $("msgInput"),
+      btnSend: $("btnSend"),
+
+      btnPing: $("btnPing"),
+      adminTarget: $("adminTarget"),
+      btnPromote: $("btnPromote"),
+      btnDemote: $("btnDemote"),
+      btnBan: $("btnBan"),
+      btnUnban: $("btnUnban"),
+      topicInput: $("topicInput"),
+      btnSetTopic: $("btnSetTopic"),
+
+      adminHint: $("adminHint"),
+      dbg: $("dbg"),
+    };
+
+    // --------- State ----------
+    const state = {
+      token: "",
+      me: null,
+      socket: null,
+      publicRooms: [],
+      activeRoomKey: "global", // can be id or name; server accepts "global"
+      activeRoom: null,
+      role: "member",
+      connected: false,
+      seenClientIds: new Set(),
+      joining: false,
+    };
+
+    // --------- Toast ----------
+    let toastTimer = null;
+    function toast(msg, ms=2200){
+      el.toast.textContent = String(msg || "");
+      el.toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=>el.toast.classList.remove("show"), ms);
+    }
+
+    // --------- Custom cursor ----------
+    const cursor = { x: window.innerWidth/2, y: window.innerHeight/2, tx: 0, ty: 0 };
+    document.addEventListener("mousemove", (e)=>{
+      cursor.tx = e.clientX;
+      cursor.ty = e.clientY;
+    }, { passive:true });
+
+    function cursorTick(){
+      cursor.x += (cursor.tx - cursor.x) * 0.28;
+      cursor.y += (cursor.ty - cursor.y) * 0.28;
+      el.cursor.style.left = cursor.x + "px";
+      el.cursor.style.top  = cursor.y + "px";
+      requestAnimationFrame(cursorTick);
+    }
+    cursorTick();
+
+    function cursorPulse(mode){
+      el.cursor.classList.add("big");
+      if (mode === "ring") el.cursor.classList.add("ring");
+      setTimeout(()=>{
+        el.cursor.classList.remove("big");
+        el.cursor.classList.remove("ring");
+      }, 160);
+    }
+
+    document.addEventListener("mousedown", ()=>cursorPulse("ring"));
+    document.addEventListener("keydown", ()=>cursorPulse("ring"));
+
+    // enlarge cursor over clickable elements
+    function setHoverCursor(){
+      const hoverables = document.querySelectorAll("button, .roomItem, a, input");
+      hoverables.forEach(h=>{
+        h.addEventListener("mouseenter", ()=>el.cursor.classList.add("big"));
+        h.addEventListener("mouseleave", ()=>el.cursor.classList.remove("big"));
+      });
+    }
+    setHoverCursor();
+
+    // --------- Networking helpers ----------
+    async function api(path, opts={}){
+      const headers = Object.assign({ "Content-Type":"application/json" }, opts.headers || {});
+      if (state.token) headers["Authorization"] = "Bearer " + state.token;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const json = await res.json().catch(()=>({ ok:false, error:"Bad JSON" }));
+      if (!res.ok && json && json.error) throw new Error(json.error);
+      if (json && json.ok === false && json.error) throw new Error(json.error);
+      return json;
+    }
+
+    function setNet(ok){
+      state.connected = !!ok;
+      el.netDot.className = "dot " + (ok ? "good" : "bad");
+      el.netText.textContent = ok ? "online" : "offline";
+    }
+
+    function showOverlay(show){
+      el.overlay.classList.toggle("hidden", !show);
+    }
+
+    function showAuthError(msg){
+      el.authErr.textContent = String(msg || "");
+      el.authErr.classList.toggle("show", !!msg);
+    }
+
+    function showLoader(show){
+      el.quickLoader.style.display = show ? "flex" : "none";
+      el.authForm.style.display = show ? "none" : "block";
+    }
+
+    // --------- Rendering ----------
+    function clearNode(n){ while(n.firstChild) n.removeChild(n.firstChild); }
+
+    function renderRooms(){
+      clearNode(el.roomsList);
+      const rooms = state.publicRooms || [];
+      if (!rooms.length){
+        const empty = document.createElement("div");
+        empty.className = "help";
+        empty.textContent = "No public rooms loaded.";
+        el.roomsList.appendChild(empty);
+        return;
+      }
+
+      for (const r of rooms){
+        const item = document.createElement("div");
+        item.className = "roomItem" + ((state.activeRoom && state.activeRoom.id === r.id) ? " active" : "");
+        item.dataset.roomId = r.id;
+
+        const top = document.createElement("div");
+        top.className = "roomTop";
+
+        const name = document.createElement("div");
+        name.className = "roomName";
+        name.textContent = r.name;
+
+        const tag = document.createElement("div");
+        tag.className = "tag";
+        tag.textContent = "public";
+
+        top.appendChild(name);
+        top.appendChild(tag);
+
+        const meta = document.createElement("div");
+        meta.className = "roomMeta";
+        meta.textContent = r.topic ? r.topic : "—";
+
+        item.appendChild(top);
+        item.appendChild(meta);
+
+        item.addEventListener("click", ()=>{
+          cursorPulse("ring");
+          joinRoom(r.id);
+        });
+
+        el.roomsList.appendChild(item);
+      }
+    }
+
+    function renderHeader(){
+      el.meName.textContent = state.me ? state.me.username : "—";
+      el.meMeta.textContent = state.me
+        ? (state.me.isGuest ? "guest" : "account") + " • lvl " + (state.me.level || 1)
+        : "—";
+      el.adminHint.textContent = state.activeRoom ? ("room: " + state.activeRoom.name) : "—";
+      el.roleTag.textContent = state.role || "member";
+      el.roomTitle.textContent = state.activeRoom ? state.activeRoom.name : "—";
+      el.roomTopic.textContent = state.activeRoom ? (state.activeRoom.topic || "—") : "—";
+    }
+
+    function addMessage(msg){
+      const wrap = document.createElement("div");
+      wrap.className = "msg" + (msg.system ? " system" : "");
+
+      const top = document.createElement("div");
+      top.className = "msgTop";
+
+      const user = document.createElement("div");
+      user.className = "msgUser";
+
+      const who = document.createElement("span");
+      who.textContent = msg.user || "—";
+
+      user.appendChild(who);
+
+      const time = document.createElement("span");
+      time.textContent = (msg.ts ? new Date(msg.ts).toLocaleTimeString() : "");
+
+      top.appendChild(user);
+      top.appendChild(time);
+
+      const text = document.createElement("div");
+      text.className = "msgText";
+      text.textContent = msg.text || "";
+
+      wrap.appendChild(top);
+      wrap.appendChild(text);
+
+      el.messages.appendChild(wrap);
+      el.messages.scrollTop = el.messages.scrollHeight;
+    }
+
+    function setHistory(messages){
+      clearNode(el.messages);
+      (messages || []).forEach(addMessage);
+      el.messages.scrollTop = el.messages.scrollHeight;
+    }
+
+    // --------- Auth flow ----------
+    function loadToken(){
+      try{
+        const t = localStorage.getItem("tonkotsu_token") || "";
+        if (t) state.token = t;
+      }catch{}
+    }
+    function saveToken(t){
+      state.token = t || "";
+      try{
+        if (t) localStorage.setItem("tonkotsu_token", t);
+        else localStorage.removeItem("tonkotsu_token");
+      }catch{}
+    }
+
+    async function loginOrCreate(){
+      showAuthError("");
+      const username = (el.authUser.value || "").trim();
+      const password = (el.authPass.value || "").trim();
+      if (username.length < 4) return showAuthError("Username must be at least 4 characters.");
+      if (password.length < 4) return showAuthError("Password must be at least 4 characters.");
+
+      showLoader(true);
+      try{
+        const r = await api("/api/auth/login", {
+          method:"POST",
+          body: JSON.stringify({ username, password })
+        });
+        saveToken(r.token);
+        state.me = r.me;
+        await bootAfterAuth();
+      }catch(e){
+        showLoader(false);
+        showAuthError(e.message || "Login failed.");
+      }
+    }
+
+    async function guest(){
+      showAuthError("");
+      showLoader(true);
+      try{
+        const r = await api("/api/auth/guest", {
+          method:"POST",
+          body: JSON.stringify({ username: (el.authUser.value||"").trim() })
+        });
+        saveToken(r.token);
+        state.me = r.me;
+        await bootAfterAuth();
+      }catch(e){
+        showLoader(false);
+        showAuthError(e.message || "Guest failed.");
+      }
+    }
+
+    async function logout(){
+      try{ await api("/api/auth/logout", { method:"POST" }); }catch{}
+      saveToken("");
+      state.me = null;
+      if (state.socket){
+        try{ state.socket.disconnect(); }catch{}
+        state.socket = null;
+      }
+      showLoader(false);
+      showAuthError("");
+      showOverlay(true);
+      toast("Logged out");
+    }
+
+    // --------- Boot after auth ----------
+    async function bootAfterAuth(){
+      // quick loading screen after logging in
+      showLoader(true);
+
+      // load me + rooms
+      const meRes = await api("/api/me");
+      state.me = meRes.me;
+      state.publicRooms = meRes.publicRooms || [];
+      renderRooms();
+
+      // connect socket + authenticate
+      await connectSocket();
+
+      // join default room (global)
+      await joinRoom("global");
+
+      // done
+      showOverlay(false);
+      renderHeader();
+      toast("Welcome");
+    }
+
+    async function connectSocket(){
+      return new Promise((resolve, reject)=>{
+        const s = io({
+          transports: ["websocket", "polling"],
+          reconnection: true,
+          reconnectionAttempts: 10,
+          reconnectionDelay: 300,
+          timeout: 8000
+        });
+
+        state.socket = s;
+
+        let authed = false;
+
+        s.on("connect", ()=>{
+          setNet(true);
+          // auth handshake
+          s.emit("auth", { token: state.token }, (ack)=>{
+            if (!ack || !ack.ok){
+              setNet(false);
+              reject(new Error((ack && ack.error) || "Socket auth failed."));
+              return;
+            }
+            authed = true;
+            state.me = ack.me;
+            renderHeader();
+            resolve();
+          });
+        });
+
+        s.on("disconnect", ()=>{
+          setNet(false);
+        });
+
+        s.on("presence", (p)=>{
+          el.onlineCount.textContent = (p && p.online) ? String(p.online) : "0";
+        });
+
+        s.on("server:toast", (m)=>{
+          if (m && m.message) toast(m.message);
+        });
+
+        s.on("room:history", (payload)=>{
+          // optional server push
+          if (!payload) return;
+          // only apply if it's the active room key
+          // payload.room can be "global" or an id; keep it simple
+          setHistory(payload.messages || []);
+        });
+
+        s.on("room:msg", (payload)=>{
+          if (!payload || !payload.msg) return;
+          // Only show messages for active room
+          // Server emits payload.room as the key used by client; we join by id mostly.
+          // If activeRoom exists and room key matches either id/name/global, accept.
+          const key = String(payload.room || "");
+          const activeId = state.activeRoom ? state.activeRoom.id : "";
+          const activeName = state.activeRoom ? state.activeRoom.name.toLowerCase() : "";
+          const ok =
+            key === "global" ||
+            key === activeId ||
+            key.toLowerCase() === activeName ||
+            (state.activeRoomKey && key === state.activeRoomKey);
+
+          if (!ok) return;
+
+          // de-dupe optimistic sends if clientId matches
+          const m = payload.msg;
+          if (m.clientId && state.seenClientIds.has(m.clientId)) return;
+          addMessage(m);
+        });
+
+        // if connect happens but auth never comes back
+        setTimeout(()=>{
+          if (!authed && s.connected){
+            reject(new Error("Socket auth timeout."));
+          }
+        }, 9000);
+      });
+    }
+
+    // --------- Rooms / Join ----------
+    async function refreshRooms(){
+      try{
+        const meRes = await api("/api/me");
+        state.publicRooms = meRes.publicRooms || [];
+        renderRooms();
+
+        // Keep active room object updated
+        if (state.activeRoom){
+          const updated = state.publicRooms.find(r=>r.id === state.activeRoom.id) || null;
+          if (updated) state.activeRoom = updated;
+          renderHeader();
+        }
+      }catch(e){
+        toast(e.message || "Failed to refresh rooms");
+      }
+    }
+
+    function computeRole(room){
+      if (!room || !state.me) return "member";
+      const u = state.me.username;
+      if (u === room.owner) return "owner";
+      if ((room.admins || []).includes(u)) return "admin";
+      return "member";
+    }
+
+    async function joinRoom(roomKey){
+      if (!state.socket || !state.socket.connected) return toast("Not connected");
+      if (state.joining) return;
+      state.joining = true;
+
+      try{
+        const key = String(roomKey || "global");
+        // resolve room object
+        let roomObj = null;
+        if (key === "global"){
+          roomObj = state.publicRooms.find(r=>r.name.toLowerCase() === "global") || state.publicRooms[0] || null;
+        } else {
+          roomObj = state.publicRooms.find(r=>r.id === key) || null;
+        }
+        if (!roomObj){
+          // if rooms not loaded, refresh then retry once
+          await refreshRooms();
+          roomObj = (key === "global")
+            ? (state.publicRooms.find(r=>r.name.toLowerCase() === "global") || state.publicRooms[0] || null)
+            : (state.publicRooms.find(r=>r.id === key) || null);
+        }
+        if (!roomObj) throw new Error("Room not found.");
+
+        state.activeRoomKey = key;
+        state.activeRoom = roomObj;
+        state.role = computeRole(roomObj);
+        renderRooms();
+        renderHeader();
+
+        // request join + history
+        await new Promise((resolve, reject)=>{
+          state.socket.emit("room:join", { room: key }, (ack)=>{
+            if (!ack || !ack.ok) return reject(new Error((ack && ack.error) || "Join failed."));
+            setHistory(ack.history || []);
+            resolve();
+          });
+        });
+
+        toast("Joined " + roomObj.name);
+      } catch (e){
+        toast(e.message || "Join failed");
+      } finally {
+        state.joining = false;
+      }
+    }
+
+    // --------- Send message ----------
+    async function sendMessage(){
+      if (!state.socket || !state.socket.connected) return toast("Not connected");
+      if (!state.activeRoomKey) return toast("No room selected");
+
+      const text = (el.msgInput.value || "").trim();
+      if (!text) return;
+
+      const clientId = "c_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(36);
+      state.seenClientIds.add(clientId);
+
+      el.msgInput.value = "";
+
+      state.socket.emit("room:send", { room: state.activeRoomKey, text, clientId }, (ack)=>{
+        if (!ack || !ack.ok){
+          toast((ack && ack.error) || "Send failed");
+          return;
+        }
+        // optimistic de-dupe will hide double-send
+      });
+    }
+
+    // --------- Admin tools ----------
+    function requireRoomSelected(){
+      if (!state.activeRoom) throw new Error("Select a room first.");
+    }
+
+    function adminAction(eventName, payload){
+      if (!state.socket || !state.socket.connected) return toast("Not connected");
+      try{ requireRoomSelected(); }catch(e){ return toast(e.message); }
+
+      state.socket.emit(eventName, Object.assign({ room: state.activeRoomKey }, payload), (ack)=>{
+        if (!ack || !ack.ok){
+          toast((ack && ack.error) || "Action failed");
+          return;
+        }
+        toast("Done");
+        // refresh role/room meta
+        refreshRooms().then(()=> {
+          if (state.activeRoom){
+            state.role = computeRole(state.activeRoom);
+            renderHeader();
+          }
+        });
+      });
+    }
+
+    // --------- Buttons wiring (fix: none of the buttons work) ----------
+    el.btnLogin.addEventListener("click", ()=>{ cursorPulse("ring"); loginOrCreate(); });
+    el.btnGuest.addEventListener("click", ()=>{ cursorPulse("ring"); guest(); });
+    el.btnReload.addEventListener("click", ()=>{ cursorPulse("ring"); location.reload(); });
+
+    el.btnLogout.addEventListener("click", ()=>{ cursorPulse("ring"); logout(); });
+
+    el.btnRefreshRooms.addEventListener("click", ()=>{ cursorPulse("ring"); refreshRooms(); });
+
+    el.btnJoinGlobal.addEventListener("click", ()=>{ cursorPulse("ring"); joinRoom("global"); });
+
+    el.btnSend.addEventListener("click", ()=>{ cursorPulse("ring"); sendMessage(); });
+    el.msgInput.addEventListener("keydown", (e)=>{
+      if (e.key === "Enter"){
+        e.preventDefault();
+        cursorPulse("ring");
+        sendMessage();
+      }
+    });
+
+    el.btnPing.addEventListener("click", async ()=>{
+      cursorPulse("ring");
+      try{
+        const s = await api("/api/status");
+        toast("Server ok • rooms: " + (s.publicRooms ?? "?"));
+        el.dbg.textContent = "ok @ " + new Date().toLocaleTimeString();
+      }catch(e){
+        toast(e.message || "Ping failed");
+        el.dbg.textContent = "ping failed";
+      }
+    });
+
+    el.btnPromote.addEventListener("click", ()=>{
+      cursorPulse("ring");
+      adminAction("room:promote", { username: el.adminTarget.value });
+    });
+    el.btnDemote.addEventListener("click", ()=>{
+      cursorPulse("ring");
+      adminAction("room:demote", { username: el.adminTarget.value });
+    });
+    el.btnBan.addEventListener("click", ()=>{
+      cursorPulse("ring");
+      adminAction("room:ban", { username: el.adminTarget.value });
+    });
+    el.btnUnban.addEventListener("click", ()=>{
+      cursorPulse("ring");
+      adminAction("room:unban", { username: el.adminTarget.value });
+    });
+    el.btnSetTopic.addEventListener("click", ()=>{
+      cursorPulse("ring");
+      adminAction("room:topic", { topic: el.topicInput.value });
+      el.topicInput.value = "";
+    });
+
+    // --------- Startup ----------
+    async function start(){
+      setNet(false);
+      loadToken();
+
+      // basic status check for UI hint
+      try{
+        const s = await api("/api/status");
+        el.dbg.textContent = "server ok";
+        // no auto-login if no token; show overlay
+      }catch{
+        el.dbg.textContent = "server unreachable";
+      }
+
+      if (!state.token){
+        showOverlay(true);
+        return;
+      }
+
+      // auto session restore
+      showOverlay(true);
+      showLoader(true);
+      try{
+        const meRes = await api("/api/me");
+        state.me = meRes.me;
+        state.publicRooms = meRes.publicRooms || [];
+        renderRooms();
+        await connectSocket();
+        await joinRoom("global");
+        showOverlay(false);
+        renderHeader();
+        toast("Session restored");
+      }catch(e){
+        // token invalid, go back to login
+        saveToken("");
+        showLoader(false);
+        showAuthError(e.message || "Session expired. Please sign in again.");
+        showOverlay(true);
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
