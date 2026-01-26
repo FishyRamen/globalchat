@@ -3,492 +3,342 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#05070b" />
   <title>tonkotsu.online</title>
 
-  <!-- Site icon -->
   <link rel="icon" href="https://em-content.zobj.net/source/google/439/steaming-bowl_1f35c.png" />
 
   <style>
     :root{
-      --bg:#05070b;
-      --panel:#0a0f16;
-      --panel2:#0d1420;
-      --line:rgba(140,150,175,.16);
-      --text:rgba(240,245,255,.92);
-      --muted:rgba(160,170,195,.85);
-      --muted2:rgba(160,170,195,.65);
-      --bad:rgba(255,92,122,.95);
-      --ok:rgba(120,255,190,.95);
-      --warn:rgba(255,210,120,.95);
-      --shadow: 0 18px 60px rgba(0,0,0,.55);
+      --bg:#07090d;
+      --panel:#0b0e14;
+      --panel2:#0d111a;
+      --line:rgba(140,160,200,.18);
+      --text:rgba(235,240,255,.92);
+      --muted:rgba(154,163,183,.86);
+      --muted2:rgba(154,163,183,.68);
+      --shadow:0 18px 60px rgba(0,0,0,.55);
       --r:18px;
-      --r2:22px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      --r2:14px;
+      --pad:14px;
+      --btn:#121829;
+      --btn2:#0f1523;
+      --danger:#ff5c7a;
+      --ok:#6ff2b2;
+      --warn:#ffd278;
+      --accent:#8fb3ff;
+      --accent2:#b8c7ff;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
     }
 
     *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family:var(--sans);
-      background: radial-gradient(1200px 700px at 30% -10%, rgba(60,120,255,.09), transparent 60%),
-                  radial-gradient(900px 600px at 100% 0%, rgba(255,110,180,.06), transparent 55%),
-                  var(--bg);
-      color:var(--text);
-      overflow:hidden;
-    }
-    a{ color:rgba(170,200,255,.95); text-decoration:none; }
+    html,body{ height:100%; margin:0; background:radial-gradient(1200px 900px at 20% 10%, rgba(70,90,140,.18), transparent 50%), var(--bg); color:var(--text); font-family:var(--font); }
+    a{ color:var(--accent); text-decoration:none; }
     a:hover{ text-decoration:underline; }
+    button,input,textarea{ font-family:inherit; }
 
-    /* --- layout --- */
-    #app{
+    /* layout */
+    #loginWrap{ min-height:100%; display:flex; align-items:center; justify-content:center; padding:26px; }
+    #loginCard{
+      width:min(940px, 100%);
+      display:grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap:18px;
+      padding:18px;
+      border-radius:22px;
+      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+    @media (max-width: 860px){
+      #loginCard{ grid-template-columns: 1fr; }
+    }
+    .card{ background:rgba(10,12,16,.72); border:1px solid var(--line); border-radius:20px; padding:18px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+    .h1{ font-size:30px; font-weight:800; letter-spacing:.2px; margin:0 0 6px; }
+    .sub{ color:var(--muted); font-size:14px; line-height:1.45; }
+    .beta{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid rgba(140,160,200,.22); background:rgba(10,12,16,.8); color:var(--muted); font-size:12px; margin-top:12px; width:max-content; }
+    .betaDot{ width:8px; height:8px; border-radius:999px; background:var(--warn); box-shadow: 0 0 0 3px rgba(255,210,120,.18); }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .field{ width:100%; display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+    .label{ font-size:12px; color:var(--muted2); letter-spacing:.2px; }
+    .input{
+      width:100%;
+      padding:12px 12px;
+      border-radius:14px;
+      background:rgba(12,14,20,.95);
+      border:1px solid rgba(140,160,200,.22);
+      color:var(--text);
+      outline:none;
+    }
+    .input:focus{ border-color:rgba(143,179,255,.5); box-shadow:0 0 0 3px rgba(143,179,255,.14); }
+
+    .btn{
+      padding:11px 12px;
+      border-radius:14px;
+      border:1px solid rgba(140,160,200,.22);
+      background:linear-gradient(180deg, rgba(18,24,41,.95), rgba(14,18,30,.95));
+      color:var(--text);
+      cursor:pointer;
+      user-select:none;
+      transition: transform .08s ease, border-color .12s ease, filter .12s ease;
+    }
+    .btn:hover{ filter:brightness(1.06); border-color:rgba(143,179,255,.35); }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{ border-color:rgba(143,179,255,.45); }
+    .btn.danger{ border-color:rgba(255,92,122,.42); }
+    .btn.ghost{ background:transparent; }
+    .loginMsg{ margin-top:12px; color:var(--muted); font-size:13px; min-height:18px; }
+
+    /* app shell */
+    #app{ display:none; height:100%; width:100%; }
+    #shell{
       height:100%;
-      display:none;
-      grid-template-columns: 330px minmax(420px, 1fr) 280px;
+      display:grid;
+      grid-template-columns: 330px 1fr 240px;
       gap:12px;
       padding:12px;
     }
-    .panel{
-      background: linear-gradient(180deg, rgba(16,22,34,.92), rgba(10,14,22,.92));
-      border:1px solid var(--line);
-      border-radius:var(--r2);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      min-height:0;
+    @media (max-width: 980px){
+      #shell{ grid-template-columns: 320px 1fr; }
+      #rightPane{ display:none; }
     }
-    .panelInner{
+    @media (max-width: 760px){
+      #shell{ grid-template-columns: 1fr; }
+      #leftPane{ display:none; }
+      #rightPane{ display:none; }
+    }
+    .pane{
+      background:rgba(10,12,16,.72);
+      border:1px solid var(--line);
+      border-radius:20px;
+      box-shadow: 0 14px 44px rgba(0,0,0,.35);
+      overflow:hidden;
       display:flex;
       flex-direction:column;
-      height:100%;
       min-height:0;
     }
-    .topbar{
+    .paneHead{
+      padding:12px 12px;
+      border-bottom:1px solid var(--line);
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
-      padding:12px 12px 10px 12px;
-      border-bottom:1px solid var(--line);
-      background: rgba(8,11,17,.7);
+      background:rgba(8,10,14,.72);
       backdrop-filter: blur(10px);
     }
-    .brand{
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-      min-width:0;
-    }
-    .brandTitle{
-      font-weight:800;
-      letter-spacing:.2px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .beta{
-      display:inline-flex;
-      align-items:center;
-      font-size:11px;
-      padding:2px 8px;
-      border-radius:999px;
-      border:1px solid rgba(160,170,195,.25);
-      color:rgba(220,230,255,.85);
-      background: rgba(10,12,16,.55);
-      margin-left:8px;
-      transform: translateY(-1px);
-    }
-    .btnRow{ display:flex; gap:8px; align-items:center; }
-    .btn{
-      appearance:none;
-      border:1px solid rgba(150,160,190,.22);
-      background: rgba(10,12,16,.55);
-      color: rgba(235,240,255,.92);
-      border-radius: 12px;
-      padding: 8px 10px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: transform .05s ease, border-color .15s ease, background .15s ease;
-      user-select:none;
-    }
-    .btn:hover{ border-color: rgba(170,185,220,.35); background: rgba(12,16,24,.68); }
-    .btn:active{ transform: translateY(1px); }
-    .btn.primary{
-      border-color: rgba(120,160,255,.35);
-      background: rgba(35,70,170,.22);
-    }
-    .btn.danger{
-      border-color: rgba(255,92,122,.35);
-      background: rgba(255,92,122,.10);
-    }
-    .btn.mini{
-      padding:6px 8px;
-      border-radius:10px;
-      font-size:12px;
-    }
+    .brand{ font-weight:800; letter-spacing:.2px; display:flex; align-items:center; gap:10px; }
+    .brand small{ color:var(--muted2); font-weight:600; }
+    .headBtns{ display:flex; gap:8px; align-items:center; }
     .pill{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      padding:8px 10px;
-      border:1px solid rgba(150,160,190,.20);
-      background: rgba(10,12,16,.35);
-      border-radius:999px;
+      display:inline-flex; align-items:center; gap:8px;
+      padding:7px 10px; border-radius:999px;
+      border:1px solid rgba(140,160,200,.22);
+      background:rgba(10,12,16,.8);
+      color:var(--muted);
       font-size:12px;
-      color: rgba(220,230,255,.85);
     }
-    .dot{
-      width:9px; height:9px; border-radius:999px;
-      background: rgba(120,255,190,.95);
-      box-shadow: 0 0 0 3px rgba(120,255,190,.12);
-      flex:0 0 auto;
-    }
-    .dot.idle{ background: rgba(255,210,120,.95); box-shadow: 0 0 0 3px rgba(255,210,120,.12); }
-    .dot.dnd{ background: rgba(255,92,122,.95); box-shadow: 0 0 0 3px rgba(255,92,122,.12); }
-    .dot.inv{ background: rgba(160,170,195,.65); box-shadow: 0 0 0 3px rgba(160,170,195,.12); }
+    .pDot{ width:10px; height:10px; border-radius:999px; background:#6ff2b2; }
+    .pDot.idle{ background:#ffd278; }
+    .pDot.dnd{ background:#ff5c7a; }
+    .pDot.inv{ background:rgba(154,163,183,.55); }
 
-    /* left panel */
-    .leftHead{
-      display:flex; flex-direction:column; gap:10px;
-      padding:12px;
-      border-bottom:1px solid var(--line);
-    }
-    .input{
-      width:100%;
-      border:1px solid rgba(150,160,190,.18);
-      background: rgba(6,8,12,.55);
-      color: var(--text);
-      border-radius: 14px;
-      padding: 10px 12px;
-      outline:none;
-      font-size:13px;
-    }
-    .input:focus{ border-color: rgba(170,185,220,.35); }
-    .subRow{ display:flex; gap:8px; }
-    #threadList{
-      padding:10px;
-      overflow:auto;
-      min-height:0;
-    }
+    /* left threads */
+    .leftTools{ padding:12px; display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--line); }
+    .toolRow{ display:flex; gap:10px; }
+    #threadList{ padding:10px; overflow:auto; min-height:0; }
     .thread{
-      border:1px solid rgba(150,160,190,.14);
-      background: rgba(10,12,16,.25);
-      border-radius: 16px;
       padding:10px 10px;
-      margin-bottom:10px;
+      border-radius:14px;
+      border:1px solid rgba(140,160,200,.12);
+      background:rgba(12,14,20,.72);
       cursor:pointer;
-      transition: border-color .15s ease, background .15s ease, transform .06s ease;
-    }
-    .thread:hover{ border-color: rgba(170,185,220,.25); background: rgba(12,16,24,.35); }
-    .thread:active{ transform: translateY(1px); }
-    .thread.active{ border-color: rgba(120,160,255,.35); background: rgba(35,70,170,.10); }
-    .threadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .threadName{ font-weight:700; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .threadKind{ font-size:11px; color: var(--muted2); }
-    .threadLast{ margin-top:6px; font-size:12px; color: var(--muted2); line-height:1.35; }
-
-    /* center panel */
-    .centerHead{
-      padding:12px;
-      border-bottom:1px solid var(--line);
       display:flex;
       flex-direction:column;
-      gap:2px;
-      background: rgba(8,11,17,.7);
-      backdrop-filter: blur(10px);
-    }
-    #centerH{ font-weight:800; }
-    #centerS{ font-size:12px; color: var(--muted2); min-height:16px; }
-    #centerBody{
-      padding:12px;
-      overflow:auto;
-      min-height:0;
-    }
-    .msg{
-      border:1px solid rgba(150,160,190,.14);
-      background: rgba(10,12,16,.25);
-      border-radius: 16px;
-      padding:10px 10px;
+      gap:6px;
       margin-bottom:10px;
-      cursor: default;
-      user-select:none;
+      transition: border-color .12s ease, filter .12s ease;
     }
-    .msgTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .msgUser{
-      font-weight:800;
-      font-size:13px;
-      letter-spacing:.1px;
-      max-width:75%;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .msgTime{ font-size:11px; color: var(--muted2); font-family:var(--mono); }
-    .msgBody{
-      margin-top:6px;
-      font-size:13px;
-      line-height:1.45;
-      color: rgba(235,240,255,.92);
-      white-space:pre-wrap;
-      word-break:break-word;
-    }
-    .chips{ margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-    .chip{
-      font-size:11px;
-      padding:3px 8px;
-      border-radius:999px;
-      border:1px solid rgba(150,160,190,.18);
-      color: rgba(220,230,255,.80);
-      background: rgba(10,12,16,.35);
-    }
-    .chip.err{ border-color: rgba(255,92,122,.35); background: rgba(255,92,122,.10); }
-    .chip.ann{ border-color: rgba(255,210,120,.30); background: rgba(255,210,120,.10); color: rgba(255,230,160,.95); }
+    .thread:hover{ border-color:rgba(143,179,255,.28); filter:brightness(1.05); }
+    .thread.active{ border-color:rgba(143,179,255,.55); }
+    .threadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .threadName{ font-weight:800; font-size:13px; }
+    .threadMeta{ font-size:11px; color:var(--muted2); }
+    .threadLast{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+    /* center */
+    #centerHead{ padding:12px; border-bottom:1px solid var(--line); }
+    #centerH{ font-weight:900; font-size:16px; }
+    #centerS{ color:var(--muted); font-size:12px; margin-top:2px; }
+    #centerBody{ padding:12px; overflow:auto; min-height:0; }
+    .msg{
+      padding:10px 10px;
+      border-radius:16px;
+      border:1px solid rgba(140,160,200,.12);
+      background:rgba(12,14,20,.60);
+      margin-bottom:10px;
+    }
+    .msgTop{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .msgUser{ font-weight:900; font-size:13px; }
+    .msgTime{ color:var(--muted2); font-size:11px; }
+    .msgBody{ margin-top:6px; color:rgba(235,240,255,.92); font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+    .chips{ margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+    .chip{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(140,160,200,.20);
+      font-size:11px;
+      color:var(--muted);
+      background:rgba(8,10,14,.45);
+    }
+    .chip.err{ border-color:rgba(255,92,122,.35); color:rgba(255,140,160,.95); }
+    .chip.ann{ border-color:rgba(255,210,120,.38); color:rgba(255,230,180,.95); }
+
+    /* composer */
     #composer{
-      padding:10px;
       border-top:1px solid var(--line);
-      background: rgba(8,11,17,.7);
+      padding:12px;
       display:flex;
       flex-direction:column;
-      gap:8px;
+      gap:10px;
+      background:rgba(8,10,14,.6);
     }
-    .composeRow{ display:flex; gap:8px; align-items:center; }
-    #msgInput{ flex:1; }
-    .smallRow{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
-    #typingText{ font-size:12px; color: var(--muted2); min-height:16px; }
-    #cooldownText{ font-size:12px; color: var(--muted2); min-height:16px; text-align:right; font-family:var(--mono); }
-
-    .cdWrap{
-      height:6px;
+    #composerRow{ display:flex; gap:10px; }
+    #msgInput{ flex:1; resize:none; height:44px; }
+    #cooldownRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #cooldownText{ font-size:12px; color:var(--muted2); min-height:14px; }
+    #cooldownTrack{
+      width:220px; height:10px;
       border-radius:999px;
-      background: rgba(150,160,190,.12);
+      background:rgba(140,160,200,.10);
+      border:1px solid rgba(140,160,200,.16);
       overflow:hidden;
-      border: 1px solid rgba(150,160,190,.12);
     }
     #cooldownBar{
       height:100%;
       width:0%;
       opacity:0;
-      background: rgba(120,160,255,.85);
-      transition: width .12s linear, opacity .15s ease;
+      background:linear-gradient(90deg, rgba(143,179,255,.9), rgba(184,199,255,.9));
+      transition: width .08s linear, opacity .18s ease;
     }
-    .cd-red #cooldownBar{ background: rgba(255,92,122,.9); opacity:1 !important; }
-    .cd-shake{ animation: shake .12s linear 0s 4; }
+    .cd-red #cooldownBar{ background:linear-gradient(90deg, rgba(255,92,122,.95), rgba(255,170,190,.92)); }
     @keyframes shake{
-      0%{ transform: translateX(0); }
-      25%{ transform: translateX(-4px); }
-      50%{ transform: translateX(3px); }
-      75%{ transform: translateX(-3px); }
-      100%{ transform: translateX(0); }
+      0%{ transform:translateX(0); }
+      25%{ transform:translateX(-6px); }
+      50%{ transform:translateX(6px); }
+      75%{ transform:translateX(-4px); }
+      100%{ transform:translateX(0); }
     }
+    .cd-shake{ animation:shake .18s ease 0s 2; }
 
-    /* right panel: ONLINE USERS compact */
-    .rightHead{
-      padding:12px;
-      border-bottom:1px solid var(--line);
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      background: rgba(8,11,17,.7);
-      backdrop-filter: blur(10px);
-    }
-    .rightTitle{ font-weight:800; }
-    #onlineUsers{
+    /* right online users (compact) */
+    #onlineUsers{ padding:12px; overflow:auto; min-height:0; }
+    .mini{
+      display:flex; gap:10px; align-items:center;
       padding:10px;
-      overflow:auto;
-      min-height:0;
-    }
-    .uRow{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:10px;
-      border-radius:16px;
-      border:1px solid rgba(150,160,190,.14);
-      background: rgba(10,12,16,.25);
+      border-radius:14px;
+      border:1px solid rgba(140,160,200,.12);
+      background:rgba(12,14,20,.60);
       margin-bottom:10px;
-      cursor:pointer;
-      transition: background .15s ease, border-color .15s ease;
     }
-    .uRow:hover{ background: rgba(12,16,24,.35); border-color: rgba(170,185,220,.25); }
-    .uName{ font-weight:800; font-size:13px; }
-    .uMeta{ font-size:12px; color: var(--muted2); margin-top:2px; }
-    .uText{ display:flex; flex-direction:column; min-width:0; }
-    .uName, .uMeta{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-    /* login */
-    #loginWrap{
-      height:100%;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:18px;
-    }
-    .loginCard{
-      width:min(520px, 96vw);
-      background: linear-gradient(180deg, rgba(16,22,34,.92), rgba(10,14,22,.92));
-      border:1px solid var(--line);
-      border-radius: 26px;
-      box-shadow: var(--shadow);
-      padding:18px;
-    }
-    .loginTitle{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:12px;
-    }
-    .loginTitle h1{
-      margin:0;
-      font-size:18px;
-      letter-spacing:.2px;
-    }
-    .loginMsg{
-      color: var(--muted);
-      font-size:13px;
-      margin: 8px 0 12px 0;
-      min-height:18px;
-    }
-    .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .credits{
-      margin-top: 14px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
-      display:flex;
-      gap:12px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      color: var(--muted2);
-      font-size: 12px;
-    }
-    .credits .links{ display:flex; gap:10px; }
-
-    /* overlay loading */
-    #loading{
-      position:fixed;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      background: rgba(0,0,0,.55);
-      backdrop-filter: blur(10px);
-      z-index: 9997;
-    }
-    #loading.show{ display:flex; }
-    .loadCard{
-      width:min(520px, 92vw);
-      background: rgba(10,12,16,.92);
-      border:1px solid rgba(150,160,190,.18);
-      border-radius: 22px;
-      padding: 16px;
-      box-shadow: var(--shadow);
-    }
-    .loadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .loadMsg{ font-weight:800; }
-    .loadTag{
-      font-size:11px;
-      padding:3px 8px;
-      border-radius:999px;
-      border:1px solid rgba(150,160,190,.18);
-      color: rgba(220,230,255,.80);
-      background: rgba(10,12,16,.35);
-      font-family: var(--mono);
-    }
+    .mini .t{ font-weight:900; font-size:13px; line-height:1.1; }
+    .mini .d{ color:var(--muted2); font-size:11px; margin-top:3px; }
 
     /* modal */
     #backdrop{
-      position:fixed;
-      inset:0;
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.55);
       display:none;
-      align-items:center;
-      justify-content:center;
-      background: rgba(0,0,0,.55);
-      backdrop-filter: blur(10px);
-      z-index:9999;
-      padding: 16px;
+      align-items:center; justify-content:center;
+      padding:18px;
+      z-index:9997;
     }
     #backdrop.show{ display:flex; }
-    .modal{
-      width:min(560px, 92vw);
-      border-radius: 22px;
-      border: 1px solid rgba(150,160,190,.18);
-      background: rgba(10,12,16,.92);
-      box-shadow: var(--shadow);
+    #modal{
+      width:min(680px, 100%);
+      border-radius:22px;
+      background:rgba(10,12,16,.92);
+      border:1px solid rgba(140,160,200,.24);
+      box-shadow:var(--shadow);
+      backdrop-filter: blur(12px);
       overflow:hidden;
     }
-    .modalHead{
-      padding:12px 12px 10px 12px;
-      border-bottom:1px solid rgba(150,160,190,.14);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
+    #modalHead{
+      padding:12px 12px;
+      border-bottom:1px solid var(--line);
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      background:rgba(8,10,14,.7);
     }
     #modalTitle{ font-weight:900; }
-    .modalBody{ padding:12px; color: rgba(235,240,255,.9); font-size:13px; line-height:1.55; }
-    .modalFoot{
-      padding:12px;
-      border-top:1px solid rgba(150,160,190,.14);
-      display:flex;
-      justify-content:flex-end;
-      gap:8px;
+    #modalClose{
+      width:36px; height:36px;
+      border-radius:12px;
+      border:1px solid rgba(140,160,200,.22);
+      background:rgba(12,14,20,.8);
+      color:var(--text);
+      cursor:pointer;
     }
+    #modalBody{ padding:14px; color:var(--text); }
+    #modalFoot{ padding:12px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
 
     /* context menu */
     #ctx{
       position:fixed;
-      z-index:10000;
+      z-index:9999;
       display:none;
-      min-width: 220px;
-      background: rgba(10,12,16,.95);
-      border:1px solid rgba(150,160,190,.18);
-      border-radius: 16px;
-      box-shadow: var(--shadow);
+      min-width:220px;
+      border-radius:16px;
+      background:rgba(10,12,16,.95);
+      border:1px solid rgba(140,160,200,.22);
+      box-shadow:var(--shadow);
       overflow:hidden;
+      backdrop-filter: blur(10px);
     }
     #ctx.show{ display:block; }
     .ctxItem{
-      padding:10px 12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
+      padding:12px 12px;
+      display:flex; justify-content:space-between; align-items:center;
       cursor:pointer;
-      color: rgba(235,240,255,.92);
-      border-bottom: 1px solid rgba(150,160,190,.10);
-      font-size: 13px;
+      border-bottom:1px solid rgba(140,160,200,.10);
+      font-size:13px;
+      color:var(--text);
     }
     .ctxItem:last-child{ border-bottom:none; }
-    .ctxItem:hover{ background: rgba(35,70,170,.18); }
-    .ctxItem.danger:hover{ background: rgba(255,92,122,.12); }
-    .ctxK{ color: rgba(160,170,195,.75); font-family: var(--mono); font-size: 11px; }
+    .ctxItem:hover{ background:rgba(143,179,255,.08); }
+    .ctxItem.danger:hover{ background:rgba(255,92,122,.10); }
+    .ctxItem small{ color:var(--muted2); font-weight:700; }
 
-    /* custom cursor */
-    #cursor, #trail{
+    /* loading overlay */
+    #loading{
+      position:fixed; inset:0;
+      display:none;
+      align-items:center; justify-content:center;
+      z-index:9996;
+      background:rgba(0,0,0,.55);
+      backdrop-filter: blur(8px);
+    }
+    #loading.show{ display:flex; }
+    #loadCard{ width:min(520px, 92%); border-radius:22px; padding:16px; border:1px solid var(--line); background:rgba(10,12,16,.86); box-shadow:var(--shadow); }
+    #loadMsg{ font-weight:900; font-size:16px; }
+    #loadTag{ margin-top:6px; color:var(--muted2); font-size:12px; }
+
+    /* custom cursor (NO TRAIL) */
+    #cursor{
       position:fixed;
       left:0; top:0;
-      width:16px; height:16px;
+      width:14px; height:14px;           /* smaller */
       border-radius:999px;
-      z-index: 10001;
-      pointer-events:none;
+      border:2px solid rgba(235,240,255,.75);
+      box-shadow:0 0 0 6px rgba(143,179,255,.10);
       transform: translate(-50%,-50%);
+      pointer-events:none;
+      z-index:10000;
       display:none;
     }
-    #cursor{
-      border: 2px solid rgba(220,230,255,.85);
-      box-shadow: 0 0 0 10px rgba(140,160,255,.10);
-      background: rgba(0,0,0,0);
-    }
-    #trail{
-      width: 44px; height: 44px;
-      border: 1px solid rgba(140,160,255,.22);
-      background: rgba(140,160,255,.06);
-      opacity: .0;
-    }
-    /* Force-black: if you see blue background, your old CSS is still being loaded somewhere. */
+
+    /* force-hide system cursor only when data-cursor="custom" */
+    html[data-cursor="custom"], html[data-cursor="custom"] * { cursor:none !important; }
   </style>
 </head>
 
@@ -496,135 +346,141 @@
   <!-- custom cursor -->
   <div id="cursor"></div>
 
-  <!-- LOGIN -->
+  <!-- login -->
   <div id="loginWrap">
-    <div class="loginCard">
-      <div class="loginTitle">
-        <h1>tonkotsu.online <span class="beta">beta</span></h1>
-        <div class="pill"><span class="dot"></span><span>secure session</span></div>
-      </div>
-
-      <div id="loginMsg" class="loginMsg">Sign in or use Guest.</div>
-
-      <div class="row2">
-        <input id="loginUser" class="input" placeholder="username" autocomplete="username" />
-        <input id="loginPass" class="input" placeholder="password" type="password" autocomplete="current-password" />
-      </div>
-
-      <div style="display:flex; gap:10px; margin-top:10px;">
-        <button id="btnLogin" class="btn primary" style="flex:1;">Sign in</button>
-        <button id="btnGuest" class="btn" style="flex:1;">Guest</button>
-      </div>
-
-      <div class="credits">
-        <div class="links">
-          <a id="linkGithub" href="#" target="_blank" rel="noreferrer">GitHub</a>
-          <a id="linkKofi" href="#" target="_blank" rel="noreferrer">Ko-fi</a>
+    <div id="loginCard">
+      <div class="card">
+        <div class="h1">tonkotsu.online</div>
+        <div class="sub">
+          Compact black chat client. Beta build. If anything breaks, check the browser console + server logs.
         </div>
-        <div>© tonkotsu.online — All rights reserved</div>
+        <div class="beta"><span class="betaDot"></span><span>beta / early access</span></div>
+
+        <div class="field">
+          <div class="label">Username</div>
+          <input id="loginUser" class="input" placeholder="username" autocomplete="username" />
+        </div>
+        <div class="field">
+          <div class="label">Password</div>
+          <input id="loginPass" class="input" placeholder="password" type="password" autocomplete="current-password" />
+        </div>
+
+        <div class="row">
+          <button id="btnLogin" class="btn primary">Sign in</button>
+          <button id="btnGuest" class="btn">Guest</button>
+        </div>
+
+        <div id="loginMsg" class="loginMsg">Sign in or use Guest.</div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:900; font-size:14px;">Info</div>
+        <div class="sub" style="margin-top:10px;">
+          • No profile pictures anywhere.<br/>
+          • Right-click messages to Edit/Delete (1 min) or Report to your moderation bot.<br/>
+          • Online users list is unique per account (multiple tabs won’t duplicate).<br/>
+          • Cooldown bar prevents spam; red shake on violation.<br/>
+          • XP system + leaderboard endpoint on server (wired, optional UI later).
+        </div>
+        <div style="margin-top:14px; color:var(--muted2); font-size:12px;">
+          GitHub / Ko-fi links are in the bootstrap response if you want to render them later.
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- APP -->
+  <!-- app -->
   <div id="app">
-    <!-- Left -->
-    <div class="panel">
-      <div class="panelInner">
-        <div class="topbar">
-          <div class="brand">
-            <div class="brandTitle">tonkotsu.online <span class="beta">beta</span></div>
-            <div style="font-size:12px;color:var(--muted2);" id="subtitleMini">messages</div>
-          </div>
-          <div class="btnRow">
-            <button id="btnUser" class="btn mini">profile</button>
-            <button id="btnLogout" class="btn mini danger">logout</button>
+    <div id="shell">
+      <!-- left -->
+      <div id="leftPane" class="pane">
+        <div class="paneHead">
+          <div class="brand">Messages <small id="leftSub">global / dm / groups</small></div>
+          <div class="headBtns">
+            <button id="btnSettings" class="btn ghost" title="Settings">Settings</button>
           </div>
         </div>
-
-        <div class="leftHead">
-          <div class="subRow">
-            <button id="btnAddFriend" class="btn mini" style="flex:1;">+ friend</button>
-            <button id="btnNewGroup" class="btn mini" style="flex:1;">+ group</button>
+        <div class="leftTools">
+          <div class="toolRow">
+            <button id="btnAddFriend" class="btn">+ friend</button>
+            <button id="btnNewGroup" class="btn">+ group</button>
           </div>
           <input id="searchThreads" class="input" placeholder="search…" />
         </div>
-
         <div id="threadList"></div>
       </div>
-    </div>
 
-    <!-- Center -->
-    <div class="panel">
-      <div class="panelInner">
-        <div class="centerHead">
+      <!-- center -->
+      <div id="centerPane" class="pane">
+        <div class="paneHead">
+          <div class="brand">tonkotsu.online <small>beta</small></div>
+          <div class="headBtns">
+            <div class="pill" title="Presence">
+              <span id="presenceDot" class="pDot"></span>
+              <span id="presenceLabel">online</span>
+            </div>
+            <button id="btnUser" class="btn">Profile</button>
+            <button id="btnLogout" class="btn danger">Logout</button>
+          </div>
+        </div>
+
+        <div id="centerHead">
           <div id="centerH">Global</div>
-          <div id="centerS"></div>
+          <div id="centerS">Public chat</div>
         </div>
 
         <div id="centerBody"></div>
 
         <div id="composer">
-          <div class="cdWrap"><div id="cooldownBar"></div></div>
-          <div class="composeRow">
-            <input id="msgInput" class="input" placeholder="Message…" />
+          <div id="composerRow">
+            <textarea id="msgInput" class="input" placeholder="Message…"></textarea>
             <button id="btnSend" class="btn primary">Send</button>
           </div>
-          <div class="smallRow">
-            <div id="typingText"></div>
+          <div id="cooldownRow">
             <div id="cooldownText"></div>
+            <div id="cooldownTrack"><div id="cooldownBar"></div></div>
           </div>
+          <div id="typingText" style="color:var(--muted2); font-size:12px; min-height:14px;"></div>
         </div>
       </div>
-    </div>
 
-    <!-- Right -->
-    <div class="panel">
-      <div class="panelInner">
-        <div class="rightHead">
-          <div class="rightTitle">Online</div>
-          <div class="pill" style="gap:10px;">
-            <span id="presenceDot" class="dot"></span>
-            <span id="presenceLabel">online</span>
+      <!-- right -->
+      <div id="rightPane" class="pane">
+        <div class="paneHead">
+          <div class="brand">Online <small id="onlineCount">0</small></div>
+          <div class="headBtns">
+            <button id="btnPresenceOnline" class="btn ghost">online</button>
+            <button id="btnPresenceIdle" class="btn ghost">idle</button>
+            <button id="btnPresenceDnd" class="btn ghost">dnd</button>
+            <button id="btnPresenceInv" class="btn ghost">invisible</button>
           </div>
         </div>
-
-        <div style="padding:10px; display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--line);">
-          <button id="btnPresenceOnline" class="btn mini">online</button>
-          <button id="btnPresenceIdle" class="btn mini">idle</button>
-          <button id="btnPresenceDnd" class="btn mini">dnd</button>
-          <button id="btnPresenceInv" class="btn mini">invisible</button>
-          <button id="btnSettings" class="btn mini" style="margin-left:auto;">settings</button>
-        </div>
-
         <div id="onlineUsers"></div>
       </div>
     </div>
   </div>
 
-  <!-- LOADING -->
+  <!-- loading -->
   <div id="loading">
-    <div class="loadCard">
-      <div class="loadTop">
-        <div id="loadMsg" class="loadMsg">Loading…</div>
-        <div id="loadTag" class="loadTag">boot</div>
-      </div>
+    <div id="loadCard">
+      <div id="loadMsg">Loading…</div>
+      <div id="loadTag">boot</div>
     </div>
   </div>
 
-  <!-- MODAL -->
+  <!-- modal -->
   <div id="backdrop">
-    <div class="modal">
-      <div class="modalHead">
+    <div id="modal">
+      <div id="modalHead">
         <div id="modalTitle"></div>
-        <button id="modalClose" class="btn mini">x</button>
+        <button id="modalClose">×</button>
       </div>
-      <div id="modalBody" class="modalBody"></div>
-      <div id="modalFoot" class="modalFoot"></div>
+      <div id="modalBody"></div>
+      <div id="modalFoot"></div>
     </div>
   </div>
 
-  <!-- CONTEXT -->
+  <!-- context menu -->
   <div id="ctx"></div>
 
   <script src="/socket.io/socket.io.js"></script>
