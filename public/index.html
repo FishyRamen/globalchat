@@ -1,146 +1,634 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>tonkotsu.online</title>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#05070b" />
+  <title>tonkotsu.online</title>
 
-    <link rel="icon" href="https://em-content.zobj.net/source/google/439/steaming-bowl_1f35c.png" />
-    <link rel="stylesheet" href="/style.css" />
-  </head>
+  <!-- Site icon -->
+  <link rel="icon" href="https://em-content.zobj.net/source/google/439/steaming-bowl_1f35c.png" />
 
-  <body>
-    <!-- LOGIN -->
-    <div id="loginWrap" class="loginWrap">
-      <div class="loginCard">
-        <div class="subtitle" id="subtitle">tonkotsu.online <span class="beta">beta</span></div>
+  <style>
+    :root{
+      --bg:#05070b;
+      --panel:#0a0f16;
+      --panel2:#0d1420;
+      --line:rgba(140,150,175,.16);
+      --text:rgba(240,245,255,.92);
+      --muted:rgba(160,170,195,.85);
+      --muted2:rgba(160,170,195,.65);
+      --bad:rgba(255,92,122,.95);
+      --ok:rgba(120,255,190,.95);
+      --warn:rgba(255,210,120,.95);
+      --shadow: 0 18px 60px rgba(0,0,0,.55);
+      --r:18px;
+      --r2:22px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
 
-        <h2 class="h2">Sign in</h2>
-        <div id="loginMsg" class="loginMsg">Sign in or use Guest.</div>
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:var(--sans);
+      background: radial-gradient(1200px 700px at 30% -10%, rgba(60,120,255,.09), transparent 60%),
+                  radial-gradient(900px 600px at 100% 0%, rgba(255,110,180,.06), transparent 55%),
+                  var(--bg);
+      color:var(--text);
+      overflow:hidden;
+    }
+    a{ color:rgba(170,200,255,.95); text-decoration:none; }
+    a:hover{ text-decoration:underline; }
 
-        <div class="loginGrid">
-          <input id="loginUser" class="input" placeholder="username" autocomplete="username" />
-          <input id="loginPass" class="input" placeholder="password" type="password" autocomplete="current-password" />
+    /* --- layout --- */
+    #app{
+      height:100%;
+      display:none;
+      grid-template-columns: 330px minmax(420px, 1fr) 280px;
+      gap:12px;
+      padding:12px;
+    }
+    .panel{
+      background: linear-gradient(180deg, rgba(16,22,34,.92), rgba(10,14,22,.92));
+      border:1px solid var(--line);
+      border-radius:var(--r2);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      min-height:0;
+    }
+    .panelInner{
+      display:flex;
+      flex-direction:column;
+      height:100%;
+      min-height:0;
+    }
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 12px 10px 12px;
+      border-bottom:1px solid var(--line);
+      background: rgba(8,11,17,.7);
+      backdrop-filter: blur(10px);
+    }
+    .brand{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .brandTitle{
+      font-weight:800;
+      letter-spacing:.2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .beta{
+      display:inline-flex;
+      align-items:center;
+      font-size:11px;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid rgba(160,170,195,.25);
+      color:rgba(220,230,255,.85);
+      background: rgba(10,12,16,.55);
+      margin-left:8px;
+      transform: translateY(-1px);
+    }
+    .btnRow{ display:flex; gap:8px; align-items:center; }
+    .btn{
+      appearance:none;
+      border:1px solid rgba(150,160,190,.22);
+      background: rgba(10,12,16,.55);
+      color: rgba(235,240,255,.92);
+      border-radius: 12px;
+      padding: 8px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: transform .05s ease, border-color .15s ease, background .15s ease;
+      user-select:none;
+    }
+    .btn:hover{ border-color: rgba(170,185,220,.35); background: rgba(12,16,24,.68); }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{
+      border-color: rgba(120,160,255,.35);
+      background: rgba(35,70,170,.22);
+    }
+    .btn.danger{
+      border-color: rgba(255,92,122,.35);
+      background: rgba(255,92,122,.10);
+    }
+    .btn.mini{
+      padding:6px 8px;
+      border-radius:10px;
+      font-size:12px;
+    }
+    .pill{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border:1px solid rgba(150,160,190,.20);
+      background: rgba(10,12,16,.35);
+      border-radius:999px;
+      font-size:12px;
+      color: rgba(220,230,255,.85);
+    }
+    .dot{
+      width:9px; height:9px; border-radius:999px;
+      background: rgba(120,255,190,.95);
+      box-shadow: 0 0 0 3px rgba(120,255,190,.12);
+      flex:0 0 auto;
+    }
+    .dot.idle{ background: rgba(255,210,120,.95); box-shadow: 0 0 0 3px rgba(255,210,120,.12); }
+    .dot.dnd{ background: rgba(255,92,122,.95); box-shadow: 0 0 0 3px rgba(255,92,122,.12); }
+    .dot.inv{ background: rgba(160,170,195,.65); box-shadow: 0 0 0 3px rgba(160,170,195,.12); }
+
+    /* left panel */
+    .leftHead{
+      display:flex; flex-direction:column; gap:10px;
+      padding:12px;
+      border-bottom:1px solid var(--line);
+    }
+    .input{
+      width:100%;
+      border:1px solid rgba(150,160,190,.18);
+      background: rgba(6,8,12,.55);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 12px;
+      outline:none;
+      font-size:13px;
+    }
+    .input:focus{ border-color: rgba(170,185,220,.35); }
+    .subRow{ display:flex; gap:8px; }
+    #threadList{
+      padding:10px;
+      overflow:auto;
+      min-height:0;
+    }
+    .thread{
+      border:1px solid rgba(150,160,190,.14);
+      background: rgba(10,12,16,.25);
+      border-radius: 16px;
+      padding:10px 10px;
+      margin-bottom:10px;
+      cursor:pointer;
+      transition: border-color .15s ease, background .15s ease, transform .06s ease;
+    }
+    .thread:hover{ border-color: rgba(170,185,220,.25); background: rgba(12,16,24,.35); }
+    .thread:active{ transform: translateY(1px); }
+    .thread.active{ border-color: rgba(120,160,255,.35); background: rgba(35,70,170,.10); }
+    .threadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .threadName{ font-weight:700; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .threadKind{ font-size:11px; color: var(--muted2); }
+    .threadLast{ margin-top:6px; font-size:12px; color: var(--muted2); line-height:1.35; }
+
+    /* center panel */
+    .centerHead{
+      padding:12px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      background: rgba(8,11,17,.7);
+      backdrop-filter: blur(10px);
+    }
+    #centerH{ font-weight:800; }
+    #centerS{ font-size:12px; color: var(--muted2); min-height:16px; }
+    #centerBody{
+      padding:12px;
+      overflow:auto;
+      min-height:0;
+    }
+    .msg{
+      border:1px solid rgba(150,160,190,.14);
+      background: rgba(10,12,16,.25);
+      border-radius: 16px;
+      padding:10px 10px;
+      margin-bottom:10px;
+      cursor: default;
+      user-select:none;
+    }
+    .msgTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .msgUser{
+      font-weight:800;
+      font-size:13px;
+      letter-spacing:.1px;
+      max-width:75%;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .msgTime{ font-size:11px; color: var(--muted2); font-family:var(--mono); }
+    .msgBody{
+      margin-top:6px;
+      font-size:13px;
+      line-height:1.45;
+      color: rgba(235,240,255,.92);
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .chips{ margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+    .chip{
+      font-size:11px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid rgba(150,160,190,.18);
+      color: rgba(220,230,255,.80);
+      background: rgba(10,12,16,.35);
+    }
+    .chip.err{ border-color: rgba(255,92,122,.35); background: rgba(255,92,122,.10); }
+    .chip.ann{ border-color: rgba(255,210,120,.30); background: rgba(255,210,120,.10); color: rgba(255,230,160,.95); }
+
+    #composer{
+      padding:10px;
+      border-top:1px solid var(--line);
+      background: rgba(8,11,17,.7);
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .composeRow{ display:flex; gap:8px; align-items:center; }
+    #msgInput{ flex:1; }
+    .smallRow{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    #typingText{ font-size:12px; color: var(--muted2); min-height:16px; }
+    #cooldownText{ font-size:12px; color: var(--muted2); min-height:16px; text-align:right; font-family:var(--mono); }
+
+    .cdWrap{
+      height:6px;
+      border-radius:999px;
+      background: rgba(150,160,190,.12);
+      overflow:hidden;
+      border: 1px solid rgba(150,160,190,.12);
+    }
+    #cooldownBar{
+      height:100%;
+      width:0%;
+      opacity:0;
+      background: rgba(120,160,255,.85);
+      transition: width .12s linear, opacity .15s ease;
+    }
+    .cd-red #cooldownBar{ background: rgba(255,92,122,.9); opacity:1 !important; }
+    .cd-shake{ animation: shake .12s linear 0s 4; }
+    @keyframes shake{
+      0%{ transform: translateX(0); }
+      25%{ transform: translateX(-4px); }
+      50%{ transform: translateX(3px); }
+      75%{ transform: translateX(-3px); }
+      100%{ transform: translateX(0); }
+    }
+
+    /* right panel: ONLINE USERS compact */
+    .rightHead{
+      padding:12px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      background: rgba(8,11,17,.7);
+      backdrop-filter: blur(10px);
+    }
+    .rightTitle{ font-weight:800; }
+    #onlineUsers{
+      padding:10px;
+      overflow:auto;
+      min-height:0;
+    }
+    .uRow{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px;
+      border-radius:16px;
+      border:1px solid rgba(150,160,190,.14);
+      background: rgba(10,12,16,.25);
+      margin-bottom:10px;
+      cursor:pointer;
+      transition: background .15s ease, border-color .15s ease;
+    }
+    .uRow:hover{ background: rgba(12,16,24,.35); border-color: rgba(170,185,220,.25); }
+    .uName{ font-weight:800; font-size:13px; }
+    .uMeta{ font-size:12px; color: var(--muted2); margin-top:2px; }
+    .uText{ display:flex; flex-direction:column; min-width:0; }
+    .uName, .uMeta{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* login */
+    #loginWrap{
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    }
+    .loginCard{
+      width:min(520px, 96vw);
+      background: linear-gradient(180deg, rgba(16,22,34,.92), rgba(10,14,22,.92));
+      border:1px solid var(--line);
+      border-radius: 26px;
+      box-shadow: var(--shadow);
+      padding:18px;
+    }
+    .loginTitle{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:12px;
+    }
+    .loginTitle h1{
+      margin:0;
+      font-size:18px;
+      letter-spacing:.2px;
+    }
+    .loginMsg{
+      color: var(--muted);
+      font-size:13px;
+      margin: 8px 0 12px 0;
+      min-height:18px;
+    }
+    .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .credits{
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      color: var(--muted2);
+      font-size: 12px;
+    }
+    .credits .links{ display:flex; gap:10px; }
+
+    /* overlay loading */
+    #loading{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(10px);
+      z-index: 9997;
+    }
+    #loading.show{ display:flex; }
+    .loadCard{
+      width:min(520px, 92vw);
+      background: rgba(10,12,16,.92);
+      border:1px solid rgba(150,160,190,.18);
+      border-radius: 22px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .loadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .loadMsg{ font-weight:800; }
+    .loadTag{
+      font-size:11px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid rgba(150,160,190,.18);
+      color: rgba(220,230,255,.80);
+      background: rgba(10,12,16,.35);
+      font-family: var(--mono);
+    }
+
+    /* modal */
+    #backdrop{
+      position:fixed;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(10px);
+      z-index:9999;
+      padding: 16px;
+    }
+    #backdrop.show{ display:flex; }
+    .modal{
+      width:min(560px, 92vw);
+      border-radius: 22px;
+      border: 1px solid rgba(150,160,190,.18);
+      background: rgba(10,12,16,.92);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .modalHead{
+      padding:12px 12px 10px 12px;
+      border-bottom:1px solid rgba(150,160,190,.14);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    #modalTitle{ font-weight:900; }
+    .modalBody{ padding:12px; color: rgba(235,240,255,.9); font-size:13px; line-height:1.55; }
+    .modalFoot{
+      padding:12px;
+      border-top:1px solid rgba(150,160,190,.14);
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+    }
+
+    /* context menu */
+    #ctx{
+      position:fixed;
+      z-index:10000;
+      display:none;
+      min-width: 220px;
+      background: rgba(10,12,16,.95);
+      border:1px solid rgba(150,160,190,.18);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    #ctx.show{ display:block; }
+    .ctxItem{
+      padding:10px 12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      cursor:pointer;
+      color: rgba(235,240,255,.92);
+      border-bottom: 1px solid rgba(150,160,190,.10);
+      font-size: 13px;
+    }
+    .ctxItem:last-child{ border-bottom:none; }
+    .ctxItem:hover{ background: rgba(35,70,170,.18); }
+    .ctxItem.danger:hover{ background: rgba(255,92,122,.12); }
+    .ctxK{ color: rgba(160,170,195,.75); font-family: var(--mono); font-size: 11px; }
+
+    /* custom cursor */
+    #cursor, #trail{
+      position:fixed;
+      left:0; top:0;
+      width:16px; height:16px;
+      border-radius:999px;
+      z-index: 10001;
+      pointer-events:none;
+      transform: translate(-50%,-50%);
+      display:none;
+    }
+    #cursor{
+      border: 2px solid rgba(220,230,255,.85);
+      box-shadow: 0 0 0 10px rgba(140,160,255,.10);
+      background: rgba(0,0,0,0);
+    }
+    #trail{
+      width: 44px; height: 44px;
+      border: 1px solid rgba(140,160,255,.22);
+      background: rgba(140,160,255,.06);
+      opacity: .0;
+    }
+    /* Force-black: if you see blue background, your old CSS is still being loaded somewhere. */
+  </style>
+</head>
+
+<body>
+  <!-- custom cursor -->
+  <div id="trail"></div>
+  <div id="cursor"></div>
+
+  <!-- LOGIN -->
+  <div id="loginWrap">
+    <div class="loginCard">
+      <div class="loginTitle">
+        <h1>tonkotsu.online <span class="beta">beta</span></h1>
+        <div class="pill"><span class="dot"></span><span>secure session</span></div>
+      </div>
+
+      <div id="loginMsg" class="loginMsg">Sign in or use Guest.</div>
+
+      <div class="row2">
+        <input id="loginUser" class="input" placeholder="username" autocomplete="username" />
+        <input id="loginPass" class="input" placeholder="password" type="password" autocomplete="current-password" />
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:10px;">
+        <button id="btnLogin" class="btn primary" style="flex:1;">Sign in</button>
+        <button id="btnGuest" class="btn" style="flex:1;">Guest</button>
+      </div>
+
+      <div class="credits">
+        <div class="links">
+          <a id="linkGithub" href="#" target="_blank" rel="noreferrer">GitHub</a>
+          <a id="linkKofi" href="#" target="_blank" rel="noreferrer">Ko-fi</a>
+        </div>
+        <div>© tonkotsu.online — All rights reserved</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app">
+    <!-- Left -->
+    <div class="panel">
+      <div class="panelInner">
+        <div class="topbar">
+          <div class="brand">
+            <div class="brandTitle">tonkotsu.online <span class="beta">beta</span></div>
+            <div style="font-size:12px;color:var(--muted2);" id="subtitleMini">messages</div>
+          </div>
+          <div class="btnRow">
+            <button id="btnUser" class="btn mini">profile</button>
+            <button id="btnLogout" class="btn mini danger">logout</button>
+          </div>
         </div>
 
-        <div class="loginBtns">
-          <button id="btnLogin" class="btn primary">Sign in</button>
-          <button id="btnGuest" class="btn">Guest</button>
+        <div class="leftHead">
+          <div class="subRow">
+            <button id="btnAddFriend" class="btn mini" style="flex:1;">+ friend</button>
+            <button id="btnNewGroup" class="btn mini" style="flex:1;">+ group</button>
+          </div>
+          <input id="searchThreads" class="input" placeholder="search…" />
         </div>
 
-        <div class="credits">
-          <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub</a>
-          <span class="dot">•</span>
-          <a href="https://ko-fi.com/" target="_blank" rel="noreferrer">Ko-fi</a>
-          <span class="dot">•</span>
-          <span>© tonkotsu.online — All rights reserved</span>
+        <div id="threadList"></div>
+      </div>
+    </div>
+
+    <!-- Center -->
+    <div class="panel">
+      <div class="panelInner">
+        <div class="centerHead">
+          <div id="centerH">Global</div>
+          <div id="centerS"></div>
+        </div>
+
+        <div id="centerBody"></div>
+
+        <div id="composer">
+          <div class="cdWrap"><div id="cooldownBar"></div></div>
+          <div class="composeRow">
+            <input id="msgInput" class="input" placeholder="Message…" />
+            <button id="btnSend" class="btn primary">Send</button>
+          </div>
+          <div class="smallRow">
+            <div id="typingText"></div>
+            <div id="cooldownText"></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- LOADING -->
-    <div id="loading" class="loading">
-      <div class="loadingCard">
+    <!-- Right -->
+    <div class="panel">
+      <div class="panelInner">
+        <div class="rightHead">
+          <div class="rightTitle">Online</div>
+          <div class="pill" style="gap:10px;">
+            <span id="presenceDot" class="dot"></span>
+            <span id="presenceLabel">online</span>
+          </div>
+        </div>
+
+        <div style="padding:10px; display:flex; flex-wrap:wrap; gap:8px; border-bottom:1px solid var(--line);">
+          <button id="btnPresenceOnline" class="btn mini">online</button>
+          <button id="btnPresenceIdle" class="btn mini">idle</button>
+          <button id="btnPresenceDnd" class="btn mini">dnd</button>
+          <button id="btnPresenceInv" class="btn mini">invisible</button>
+          <button id="btnSettings" class="btn mini" style="margin-left:auto;">settings</button>
+        </div>
+
+        <div id="onlineUsers"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading">
+    <div class="loadCard">
+      <div class="loadTop">
         <div id="loadMsg" class="loadMsg">Loading…</div>
         <div id="loadTag" class="loadTag">boot</div>
       </div>
     </div>
+  </div>
 
-    <!-- APP -->
-    <div id="app" class="app" style="display:none">
-      <div class="topbar">
-        <div class="subtitle" id="subtitleTop">tonkotsu.online <span class="beta">beta</span></div>
-        <div class="topRight">
-          <button id="btnUser" class="btn mini">profile</button>
-          <button id="btnLogout" class="btn mini danger">logout</button>
-        </div>
+  <!-- MODAL -->
+  <div id="backdrop">
+    <div class="modal">
+      <div class="modalHead">
+        <div id="modalTitle"></div>
+        <button id="modalClose" class="btn mini">x</button>
       </div>
-
-      <div class="layout">
-        <!-- LEFT -->
-        <aside class="left">
-          <div class="leftHead">
-            <div class="leftTitle">Messages</div>
-            <div class="leftActions">
-              <button id="btnNewGroup" class="btn mini">+ group</button>
-              <button id="btnAddFriend" class="btn mini">+ friend</button>
-            </div>
-          </div>
-          <div class="leftSearch">
-            <input id="searchThreads" class="input" placeholder="search..." />
-          </div>
-          <div id="threadList" class="threadList"></div>
-        </aside>
-
-        <!-- CENTER -->
-        <main class="center">
-          <div class="centerHead">
-            <div id="centerH" class="centerH">Global</div>
-            <div id="centerS" class="centerS"></div>
-          </div>
-
-          <div id="centerBody" class="centerBody"></div>
-
-          <div id="composer" class="composer">
-            <div class="cooldownWrap">
-              <div id="cooldownBar" class="cooldownBar"></div>
-            </div>
-
-            <div class="composerRow">
-              <textarea id="msgInput" class="input msgInput" placeholder="Message..." rows="1"></textarea>
-              <button id="btnSend" class="btn primary">Send</button>
-            </div>
-
-            <div class="composerMeta">
-              <div id="typingText" class="typingText"></div>
-              <div id="cooldownText" class="cooldownText"></div>
-            </div>
-          </div>
-        </main>
-
-        <!-- RIGHT -->
-        <aside class="right">
-          <div class="rightHead">
-            <div class="rightTitle">Online users</div>
-            <div class="presence">
-              <span id="presenceDot" class="presenceDot"></span>
-              <span id="presenceLabel" class="presenceLabel">online</span>
-            </div>
-          </div>
-
-          <div class="presenceBtns">
-            <button id="btnPresenceOnline" class="btn mini">online</button>
-            <button id="btnPresenceIdle" class="btn mini">idle</button>
-            <button id="btnPresenceDnd" class="btn mini">dnd</button>
-            <button id="btnPresenceInv" class="btn mini">invisible</button>
-            <button id="btnSettings" class="btn mini">settings</button>
-          </div>
-
-          <div id="onlineUsers" class="onlineUsers"></div>
-        </aside>
-      </div>
+      <div id="modalBody" class="modalBody"></div>
+      <div id="modalFoot" class="modalFoot"></div>
     </div>
+  </div>
 
-    <!-- MODAL -->
-    <div id="backdrop" class="backdrop">
-      <div class="modal">
-        <div class="modalHead">
-          <div id="modalTitle" class="modalTitle"></div>
-          <button id="modalClose" class="btn mini">x</button>
-        </div>
-        <div id="modalBody" class="modalBody"></div>
-        <div id="modalFoot" class="modalFoot"></div>
-      </div>
-    </div>
+  <!-- CONTEXT -->
+  <div id="ctx"></div>
 
-    <!-- CONTEXT MENU -->
-    <div id="ctx" class="ctx"></div>
-
-    <!-- CURSOR -->
-    <div id="cursor" class="cursor"></div>
-    <div id="trail" class="trail"></div>
-
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="/script.js"></script>
-  </body>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/script.js"></script>
+</body>
 </html>
