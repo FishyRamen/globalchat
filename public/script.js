@@ -88,7 +88,6 @@
 
     ctx: $("#ctx"),
     cursor: $("#cursor"),
-    trail: $("#trail"),
   };
 
   // API
