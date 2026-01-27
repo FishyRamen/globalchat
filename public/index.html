@@ -4,486 +4,719 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>tonkotsu.online</title>
-
-  <link rel="icon" href="https://em-content.zobj.net/source/google/439/steaming-bowl_1f35c.png" />
-
+  <meta name="color-scheme" content="dark" />
   <style>
     :root{
-      --bg:#07090d;
-      --panel:#0b0e14;
-      --panel2:#0d111a;
-      --line:rgba(140,160,200,.18);
-      --text:rgba(235,240,255,.92);
+      --bg:#07080b;
+      --panel:#0c0f14;
+      --panel2:#0a0c10;
+      --panel3:#0f1218;
+      --border:rgba(140,160,200,.16);
+      --border2:rgba(140,160,200,.10);
+      --txt:rgba(236,242,255,.92);
       --muted:rgba(154,163,183,.86);
       --muted2:rgba(154,163,183,.68);
-      --shadow:0 18px 60px rgba(0,0,0,.55);
-      --r:18px;
-      --r2:14px;
-      --pad:14px;
-      --btn:#121829;
-      --btn2:#0f1523;
-      --danger:#ff5c7a;
-      --ok:#6ff2b2;
+      --shadow: 0 18px 60px rgba(0,0,0,.55);
+      --accent:#8bb6ff;
+      --accent2:#a98bff;
+      --good:#69ffba;
       --warn:#ffd278;
-      --accent:#8fb3ff;
-      --accent2:#b8c7ff;
-      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      --bad:#ff5c7a;
+      --ring: 0 0 0 3px rgba(139,182,255,.18);
+      --radius:18px;
+      --radius2:14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
     }
-
     *{ box-sizing:border-box; }
-    html,body{ height:100%; margin:0; background:radial-gradient(1200px 900px at 20% 10%, rgba(70,90,140,.18), transparent 50%), var(--bg); color:var(--text); font-family:var(--font); }
-    a{ color:var(--accent); text-decoration:none; }
-    a:hover{ text-decoration:underline; }
-    button,input,textarea{ font-family:inherit; }
-
-    /* layout */
-    #loginWrap{ min-height:100%; display:flex; align-items:center; justify-content:center; padding:26px; }
-    #loginCard{
-      width:min(940px, 100%);
-      display:grid;
-      grid-template-columns: 1.2fr .8fr;
-      gap:18px;
-      padding:18px;
-      border-radius:22px;
-      background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-      border:1px solid var(--line);
-      box-shadow:var(--shadow);
-      backdrop-filter: blur(12px);
-    }
-    @media (max-width: 860px){
-      #loginCard{ grid-template-columns: 1fr; }
-    }
-    .card{ background:rgba(10,12,16,.72); border:1px solid var(--line); border-radius:20px; padding:18px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
-    .h1{ font-size:30px; font-weight:800; letter-spacing:.2px; margin:0 0 6px; }
-    .sub{ color:var(--muted); font-size:14px; line-height:1.45; }
-    .beta{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; border:1px solid rgba(140,160,200,.22); background:rgba(10,12,16,.8); color:var(--muted); font-size:12px; margin-top:12px; width:max-content; }
-    .betaDot{ width:8px; height:8px; border-radius:999px; background:var(--warn); box-shadow: 0 0 0 3px rgba(255,210,120,.18); }
-    .row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
-    .field{ width:100%; display:flex; flex-direction:column; gap:8px; margin-top:14px; }
-    .label{ font-size:12px; color:var(--muted2); letter-spacing:.2px; }
-    .input{
-      width:100%;
-      padding:12px 12px;
-      border-radius:14px;
-      background:rgba(12,14,20,.95);
-      border:1px solid rgba(140,160,200,.22);
-      color:var(--text);
-      outline:none;
-    }
-    .input:focus{ border-color:rgba(143,179,255,.5); box-shadow:0 0 0 3px rgba(143,179,255,.14); }
-
-    .btn{
-      padding:11px 12px;
-      border-radius:14px;
-      border:1px solid rgba(140,160,200,.22);
-      background:linear-gradient(180deg, rgba(18,24,41,.95), rgba(14,18,30,.95));
-      color:var(--text);
-      cursor:pointer;
-      user-select:none;
-      transition: transform .08s ease, border-color .12s ease, filter .12s ease;
-    }
-    .btn:hover{ filter:brightness(1.06); border-color:rgba(143,179,255,.35); }
-    .btn:active{ transform: translateY(1px); }
-    .btn.primary{ border-color:rgba(143,179,255,.45); }
-    .btn.danger{ border-color:rgba(255,92,122,.42); }
-    .btn.ghost{ background:transparent; }
-    .loginMsg{ margin-top:12px; color:var(--muted); font-size:13px; min-height:18px; }
-
-    /* app shell */
-    #app{ display:none; height:100%; width:100%; }
-    #shell{
-      height:100%;
-      display:grid;
-      grid-template-columns: 330px 1fr 240px;
-      gap:12px;
-      padding:12px;
-    }
-    @media (max-width: 980px){
-      #shell{ grid-template-columns: 320px 1fr; }
-      #rightPane{ display:none; }
-    }
-    @media (max-width: 760px){
-      #shell{ grid-template-columns: 1fr; }
-      #leftPane{ display:none; }
-      #rightPane{ display:none; }
-    }
-    .pane{
-      background:rgba(10,12,16,.72);
-      border:1px solid var(--line);
-      border-radius:20px;
-      box-shadow: 0 14px 44px rgba(0,0,0,.35);
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:var(--sans);
+      background: radial-gradient(1200px 900px at 25% -10%, rgba(139,182,255,.10), transparent 60%),
+                  radial-gradient(900px 600px at 110% 20%, rgba(169,139,255,.10), transparent 55%),
+                  linear-gradient(180deg, var(--bg), #05060a 60%, #05060a);
+      color:var(--txt);
       overflow:hidden;
+    }
+
+    /* Custom cursor (small) — no trail */
+    html[data-cursor="custom"] { cursor:none; }
+    html[data-cursor="custom"] * { cursor:none !important; }
+    #cursor{
+      position:fixed;
+      left:0; top:0;
+      width:12px; height:12px; /* smaller */
+      border-radius:999px;
+      border:1px solid rgba(210,220,255,.55);
+      background: rgba(210,220,255,.10);
+      box-shadow: 0 8px 30px rgba(0,0,0,.6);
+      transform:translate(-50%,-50%);
+      z-index:9999;
+      pointer-events:none;
+      display:none;
+      transition: transform 40ms linear;
+    }
+
+    /* Login */
+    #loginWrap{
+      position:fixed; inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:28px;
+    }
+    .loginCard{
+      width:min(920px, 100%);
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap:18px;
+      background: rgba(10,12,16,.80);
+      border:1px solid var(--border);
+      border-radius:24px;
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .loginHero{
+      padding:22px 22px 18px;
+      background:
+        radial-gradient(900px 600px at 10% 20%, rgba(139,182,255,.16), transparent 55%),
+        radial-gradient(700px 500px at 80% 0%, rgba(169,139,255,.15), transparent 55%),
+        linear-gradient(180deg, rgba(12,15,20,.92), rgba(10,12,16,.92));
+      border-right:1px solid var(--border2);
+    }
+    .brand{
+      display:flex; align-items:center; gap:10px;
+      margin-bottom:12px;
+    }
+    .logo{
+      width:38px;height:38px;border-radius:14px;
+      background: linear-gradient(135deg, rgba(139,182,255,.9), rgba(169,139,255,.85));
+      box-shadow: 0 10px 30px rgba(0,0,0,.55);
+    }
+    .brand h1{
+      margin:0;
+      font-size:20px;
+      letter-spacing:.2px;
+      font-weight:900;
+    }
+    .tag{
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.6;
+      max-width:54ch;
+    }
+    .pillRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+    .pill{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid var(--border2);
+      background: rgba(12,15,20,.65);
+      color: rgba(235,240,255,.85);
+      font-size:12px;
+    }
+
+    .loginForm{
+      padding:22px;
       display:flex;
       flex-direction:column;
-      min-height:0;
+      gap:12px;
+      background: rgba(10,12,16,.92);
     }
-    .paneHead{
+    .fieldLabel{
+      font-size:12px;
+      color:var(--muted2);
+      font-weight:800;
+      letter-spacing:.3px;
+      margin-bottom:6px;
+    }
+    .input{
+      width:100%;
+      border-radius:16px;
+      border:1px solid var(--border);
+      background: rgba(7,8,11,.6);
+      color:var(--txt);
       padding:12px 12px;
-      border-bottom:1px solid var(--line);
+      outline:none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .input:focus{ border-color: rgba(139,182,255,.35); box-shadow: var(--ring); }
+
+    .btnRow{ display:flex; gap:10px; margin-top:4px; }
+    .btn{
+      border:1px solid var(--border);
+      background: rgba(12,15,20,.7);
+      color:var(--txt);
+      padding:10px 12px;
+      border-radius:16px;
+      font-weight:900;
+      letter-spacing:.2px;
+      cursor:pointer;
+      user-select:none;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+    .btn:hover{ transform: translateY(-1px); border-color: rgba(139,182,255,.35); }
+    .btn:active{ transform: translateY(0px) scale(.99); }
+    .btn.primary{
+      border-color: rgba(139,182,255,.35);
+      background: linear-gradient(135deg, rgba(139,182,255,.25), rgba(169,139,255,.18));
+    }
+    .btn.danger{
+      border-color: rgba(255,92,122,.35);
+      background: rgba(255,92,122,.10);
+    }
+    #loginMsg{
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    /* App layout */
+    #app{
+      position:fixed; inset:0;
+      display:none;
+    }
+    .appTop{
+      height:54px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 12px 0 14px;
+      border-bottom:1px solid var(--border2);
+      background: rgba(8,10,14,.72);
+      backdrop-filter: blur(10px);
+    }
+    .topLeft{
+      display:flex; align-items:center; gap:10px;
+      min-width: 260px;
+    }
+    .topTitle{
+      display:flex; flex-direction:column;
+      line-height:1.1;
+    }
+    .topTitle b{ font-size:13px; }
+    .topTitle span{ font-size:11px; color:var(--muted2); }
+    .topActions{ display:flex; align-items:center; gap:10px; }
+
+    .layout{
+      height: calc(100% - 54px);
+      display:grid;
+      grid-template-columns: 320px 1fr 320px;
+      gap:10px;
+      padding:10px;
+    }
+    .panel{
+      border:1px solid var(--border2);
+      background: rgba(10,12,16,.72);
+      border-radius: var(--radius);
+      overflow:hidden;
+      box-shadow: 0 14px 60px rgba(0,0,0,.35);
+    }
+    .panelHead{
+      height:46px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:0 12px;
+      border-bottom:1px solid var(--border2);
+      background: rgba(12,15,20,.55);
+    }
+    .panelHead b{ font-size:12px; letter-spacing:.3px; }
+    .panelHead .mini{
+      display:flex; align-items:center; gap:8px;
+      color:var(--muted);
+      font-size:11px;
+    }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border2);
+      background: rgba(8,10,14,.55);
+      font-size:11px;
+      color: rgba(235,240,255,.86);
+    }
+    .chip.ann{ border-color: rgba(255,210,120,.25); color: rgba(255,210,120,.95); }
+    .chip.err{ border-color: rgba(255,92,122,.35); color: rgba(255,92,122,.95); }
+
+    /* Left: threads */
+    .leftBody{ height: calc(100% - 46px); display:flex; flex-direction:column; }
+    .searchWrap{
+      padding:10px;
+      border-bottom:1px solid var(--border2);
+      display:flex;
+      gap:10px;
+    }
+    #searchThreads{ flex:1; }
+    .threadList{ padding:10px; overflow:auto; height:100%; }
+    .thread{
+      border:1px solid rgba(140,160,200,.10);
+      background: rgba(7,8,11,.32);
+      border-radius:16px;
+      padding:10px;
+      margin-bottom:10px;
+      cursor:pointer;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+      position:relative;
+    }
+    .thread:hover{ transform: translateY(-1px); border-color: rgba(139,182,255,.22); background: rgba(7,8,11,.40); }
+    .thread.active{ border-color: rgba(139,182,255,.40); background: rgba(12,15,20,.60); }
+    .threadTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .threadName{ font-weight:900; font-size:12px; letter-spacing:.2px; }
+    .threadMeta{ font-size:10px; color:var(--muted2); text-transform:uppercase; letter-spacing:.6px; }
+    .threadLast{ margin-top:6px; font-size:11px; color:var(--muted); line-height:1.35; }
+    .pingDot{
+      position:absolute; right:10px; top:10px;
+      width:10px; height:10px; border-radius:999px;
+      background: var(--bad);
+      box-shadow: 0 0 0 4px rgba(255,92,122,.12);
+      display:none;
+    }
+    .thread.ping .pingDot{ display:block; }
+
+    /* Center: messages */
+    .centerBody{
+      height: calc(100% - 46px - 62px);
+      overflow:auto;
+      padding:12px;
+    }
+    .msg{
+      border:1px solid rgba(140,160,200,.10);
+      background: rgba(7,8,11,.28);
+      border-radius: 16px;
+      padding:10px;
+      margin-bottom:10px;
+      transition: border-color 120ms ease;
+    }
+    .msg:hover{ border-color: rgba(139,182,255,.18); }
+    .msgTop{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .msgUser{ font-weight:900; font-size:12px; }
+    .msgTime{ font-size:10px; color:var(--muted2); font-family:var(--mono); }
+    .msgBody{ margin-top:6px; font-size:12px; line-height:1.45; color:rgba(235,240,255,.92); white-space:pre-wrap; word-break:break-word; }
+    .chips{ margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
+
+    .composer{
+      height:62px;
+      border-top:1px solid var(--border2);
+      background: rgba(12,15,20,.55);
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px;
+      position:relative;
+    }
+    .composer .input{ border-radius: 16px; padding:10px 12px; }
+    #btnSend{ white-space:nowrap; }
+
+    /* compact cooldown UI */
+    .cooldownWrap{
+      position:absolute;
+      left:12px; right:12px;
+      bottom:6px;
+      height:3px;
+      opacity:.0;
+      transition: opacity 120ms ease;
+    }
+    #cooldownBar{
+      height:3px;
+      border-radius:999px;
+      width:0%;
+      background: linear-gradient(90deg, rgba(139,182,255,.6), rgba(169,139,255,.55));
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    #cooldownText{
+      position:absolute;
+      right:12px;
+      top:-18px;
+      font-size:10px;
+      color: rgba(154,163,183,.75);
+      font-family: var(--mono);
+    }
+    .cd-red{ border-color: rgba(255,92,122,.40) !important; }
+    .cd-shake{ animation: shake .18s linear 2; }
+    @keyframes shake{
+      0%{ transform: translateX(0) }
+      25%{ transform: translateX(-2px) }
+      50%{ transform: translateX(2px) }
+      75%{ transform: translateX(-2px) }
+      100%{ transform: translateX(0) }
+    }
+
+    /* Right: online users */
+    .rightBody{
+      height: calc(100% - 46px);
+      overflow:auto;
+      padding:10px;
+    }
+    .userRow{
+      border:1px solid rgba(140,160,200,.10);
+      background: rgba(7,8,11,.28);
+      border-radius:16px;
+      padding:10px;
+      margin-bottom:10px;
+      cursor:pointer;
+      transition: border-color 120ms ease, transform 120ms ease;
+    }
+    .userRow:hover{ transform: translateY(-1px); border-color: rgba(139,182,255,.18); }
+    .userTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .who{ display:flex; align-items:center; gap:10px; min-width:0; }
+    .dot{
+      width:10px;height:10px;border-radius:999px;
+      background: var(--good);
+      box-shadow: 0 0 0 4px rgba(105,255,186,.10);
+      flex:0 0 auto;
+    }
+    .dot.idle{ background: var(--warn); box-shadow: 0 0 0 4px rgba(255,210,120,.10); }
+    .dot.dnd{ background: var(--bad); box-shadow: 0 0 0 4px rgba(255,92,122,.12); }
+    .dot.inv{ background: rgba(154,163,183,.45); box-shadow: 0 0 0 4px rgba(154,163,183,.08); }
+    .nameCol{ display:flex; flex-direction:column; min-width:0; }
+    .uname{
+      font-weight:900; font-size:12px;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .uStatus{
+      font-size:11px; color: var(--muted);
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .badges{
+      display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;
+    }
+    .badge{
+      font-size:10px;
+      padding:4px 7px;
+      border-radius:999px;
+      border:1px solid rgba(140,160,200,.14);
+      background: rgba(12,15,20,.55);
+      color: rgba(235,240,255,.85);
+      text-transform:uppercase;
+      letter-spacing:.6px;
+    }
+    .badge.guest{ border-color: rgba(255,210,120,.25); color: rgba(255,210,120,.95); }
+    .badge.beta{ border-color: rgba(139,182,255,.22); color: rgba(139,182,255,.92); }
+    .badge.early{ border-color: rgba(169,139,255,.22); color: rgba(169,139,255,.92); }
+    .badge.announcement{ border-color: rgba(255,210,120,.25); color: rgba(255,210,120,.95); }
+
+    /* Context menu */
+    #ctx{
+      position:fixed;
+      min-width: 220px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(10,12,16,.96);
+      box-shadow: 0 18px 70px rgba(0,0,0,.65);
+      padding: 6px;
+      z-index: 9997;
+      display:none;
+    }
+    #ctx.show{ display:block; }
+    .ctxItem{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
-      background:rgba(8,10,14,.72);
-      backdrop-filter: blur(10px);
-    }
-    .brand{ font-weight:800; letter-spacing:.2px; display:flex; align-items:center; gap:10px; }
-    .brand small{ color:var(--muted2); font-weight:600; }
-    .headBtns{ display:flex; gap:8px; align-items:center; }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:7px 10px; border-radius:999px;
-      border:1px solid rgba(140,160,200,.22);
-      background:rgba(10,12,16,.8);
-      color:var(--muted);
+      padding:10px 10px;
+      border-radius: 12px;
+      cursor:pointer;
+      user-select:none;
+      border:1px solid transparent;
+      color: rgba(235,240,255,.92);
+      font-weight:900;
       font-size:12px;
     }
-    .pDot{ width:10px; height:10px; border-radius:999px; background:#6ff2b2; }
-    .pDot.idle{ background:#ffd278; }
-    .pDot.dnd{ background:#ff5c7a; }
-    .pDot.inv{ background:rgba(154,163,183,.55); }
+    .ctxItem:hover{ background: rgba(255,92,122,.10); border-color: rgba(255,92,122,.22); }
+    .ctxItem small{ opacity:.75; font-weight:900; }
 
-    /* left threads */
-    .leftTools{ padding:12px; display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--line); }
-    .toolRow{ display:flex; gap:10px; }
-    #threadList{ padding:10px; overflow:auto; min-height:0; }
-    .thread{
-      padding:10px 10px;
-      border-radius:14px;
-      border:1px solid rgba(140,160,200,.12);
-      background:rgba(12,14,20,.72);
-      cursor:pointer;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      margin-bottom:10px;
-      transition: border-color .12s ease, filter .12s ease;
-    }
-    .thread:hover{ border-color:rgba(143,179,255,.28); filter:brightness(1.05); }
-    .thread.active{ border-color:rgba(143,179,255,.55); }
-    .threadTop{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
-    .threadName{ font-weight:800; font-size:13px; }
-    .threadMeta{ font-size:11px; color:var(--muted2); }
-    .threadLast{ font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-
-    /* center */
-    #centerHead{ padding:12px; border-bottom:1px solid var(--line); }
-    #centerH{ font-weight:900; font-size:16px; }
-    #centerS{ color:var(--muted); font-size:12px; margin-top:2px; }
-    #centerBody{ padding:12px; overflow:auto; min-height:0; }
-    .msg{
-      padding:10px 10px;
-      border-radius:16px;
-      border:1px solid rgba(140,160,200,.12);
-      background:rgba(12,14,20,.60);
-      margin-bottom:10px;
-    }
-    .msgTop{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
-    .msgUser{ font-weight:900; font-size:13px; }
-    .msgTime{ color:var(--muted2); font-size:11px; }
-    .msgBody{ margin-top:6px; color:rgba(235,240,255,.92); font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
-    .chips{ margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
-    .chip{
-      display:inline-flex; align-items:center; gap:6px;
-      padding:4px 8px;
-      border-radius:999px;
-      border:1px solid rgba(140,160,200,.20);
-      font-size:11px;
-      color:var(--muted);
-      background:rgba(8,10,14,.45);
-    }
-    .chip.err{ border-color:rgba(255,92,122,.35); color:rgba(255,140,160,.95); }
-    .chip.ann{ border-color:rgba(255,210,120,.38); color:rgba(255,230,180,.95); }
-
-    /* composer */
-    #composer{
-      border-top:1px solid var(--line);
-      padding:12px;
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      background:rgba(8,10,14,.6);
-    }
-    #composerRow{ display:flex; gap:10px; }
-    #msgInput{ flex:1; resize:none; height:44px; }
-    #cooldownRow{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    #cooldownText{ font-size:12px; color:var(--muted2); min-height:14px; }
-    #cooldownTrack{
-      width:220px; height:10px;
-      border-radius:999px;
-      background:rgba(140,160,200,.10);
-      border:1px solid rgba(140,160,200,.16);
-      overflow:hidden;
-    }
-    #cooldownBar{
-      height:100%;
-      width:0%;
-      opacity:0;
-      background:linear-gradient(90deg, rgba(143,179,255,.9), rgba(184,199,255,.9));
-      transition: width .08s linear, opacity .18s ease;
-    }
-    .cd-red #cooldownBar{ background:linear-gradient(90deg, rgba(255,92,122,.95), rgba(255,170,190,.92)); }
-    @keyframes shake{
-      0%{ transform:translateX(0); }
-      25%{ transform:translateX(-6px); }
-      50%{ transform:translateX(6px); }
-      75%{ transform:translateX(-4px); }
-      100%{ transform:translateX(0); }
-    }
-    .cd-shake{ animation:shake .18s ease 0s 2; }
-
-    /* right online users (compact) */
-    #onlineUsers{ padding:12px; overflow:auto; min-height:0; }
-    .mini{
-      display:flex; gap:10px; align-items:center;
-      padding:10px;
-      border-radius:14px;
-      border:1px solid rgba(140,160,200,.12);
-      background:rgba(12,14,20,.60);
-      margin-bottom:10px;
-    }
-    .mini .t{ font-weight:900; font-size:13px; line-height:1.1; }
-    .mini .d{ color:var(--muted2); font-size:11px; margin-top:3px; }
-
-    /* modal */
+    /* Modal */
     #backdrop{
       position:fixed; inset:0;
-      background:rgba(0,0,0,.55);
       display:none;
-      align-items:center; justify-content:center;
-      padding:18px;
-      z-index:9997;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      background: rgba(0,0,0,.58);
+      z-index: 9996;
     }
     #backdrop.show{ display:flex; }
-    #modal{
-      width:min(680px, 100%);
-      border-radius:22px;
-      background:rgba(10,12,16,.92);
-      border:1px solid rgba(140,160,200,.24);
-      box-shadow:var(--shadow);
-      backdrop-filter: blur(12px);
+    .modal{
+      width: min(680px, 100%);
+      border-radius: 22px;
+      border: 1px solid var(--border);
+      background: rgba(10,12,16,.96);
+      box-shadow: 0 24px 90px rgba(0,0,0,.70);
       overflow:hidden;
     }
-    #modalHead{
-      padding:12px 12px;
-      border-bottom:1px solid var(--line);
-      display:flex; justify-content:space-between; align-items:center; gap:10px;
-      background:rgba(8,10,14,.7);
+    .modalHead{
+      height: 52px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:0 14px;
+      border-bottom:1px solid var(--border2);
+      background: rgba(12,15,20,.65);
     }
-    #modalTitle{ font-weight:900; }
+    .modalHead b{ font-size:13px; letter-spacing:.2px; }
     #modalClose{
-      width:36px; height:36px;
-      border-radius:12px;
-      border:1px solid rgba(140,160,200,.22);
-      background:rgba(12,14,20,.8);
-      color:var(--text);
+      width:36px;height:36px;border-radius:14px;
+      border:1px solid var(--border2);
+      background: rgba(7,8,11,.35);
+      color: rgba(235,240,255,.90);
+      font-weight:900;
       cursor:pointer;
     }
-    #modalBody{ padding:14px; color:var(--text); }
-    #modalFoot{ padding:12px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px; }
-
-    /* context menu */
-    #ctx{
-      position:fixed;
-      z-index:9999;
-      display:none;
-      min-width:220px;
-      border-radius:16px;
-      background:rgba(10,12,16,.95);
-      border:1px solid rgba(140,160,200,.22);
-      box-shadow:var(--shadow);
-      overflow:hidden;
-      backdrop-filter: blur(10px);
+    #modalClose:hover{ border-color: rgba(139,182,255,.22); }
+    .modalBody{ padding:14px; }
+    .modalFoot{
+      padding: 12px 14px 14px;
+      border-top:1px solid var(--border2);
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      background: rgba(12,15,20,.55);
     }
-    #ctx.show{ display:block; }
-    .ctxItem{
-      padding:12px 12px;
-      display:flex; justify-content:space-between; align-items:center;
-      cursor:pointer;
-      border-bottom:1px solid rgba(140,160,200,.10);
-      font-size:13px;
-      color:var(--text);
-    }
-    .ctxItem:last-child{ border-bottom:none; }
-    .ctxItem:hover{ background:rgba(143,179,255,.08); }
-    .ctxItem.danger:hover{ background:rgba(255,92,122,.10); }
-    .ctxItem small{ color:var(--muted2); font-weight:700; }
 
-    /* loading overlay */
+    /* Loading overlay */
     #loading{
       position:fixed; inset:0;
       display:none;
-      align-items:center; justify-content:center;
-      z-index:9996;
-      background:rgba(0,0,0,.55);
-      backdrop-filter: blur(8px);
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,.55);
+      z-index: 9995;
     }
     #loading.show{ display:flex; }
-    #loadCard{ width:min(520px, 92%); border-radius:22px; padding:16px; border:1px solid var(--line); background:rgba(10,12,16,.86); box-shadow:var(--shadow); }
-    #loadMsg{ font-weight:900; font-size:16px; }
-    #loadTag{ margin-top:6px; color:var(--muted2); font-size:12px; }
-
-    /* custom cursor (NO TRAIL) */
-    #cursor{
-      position:fixed;
-      left:0; top:0;
-      width:14px; height:14px;           /* smaller */
+    .loadCard{
+      width:min(520px, 100%);
+      border-radius: 22px;
+      border:1px solid var(--border);
+      background: rgba(10,12,16,.96);
+      box-shadow: 0 24px 90px rgba(0,0,0,.70);
+      padding: 16px;
+    }
+    .loadRow{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px;
+    }
+    .spinner{
+      width:16px; height:16px;
       border-radius:999px;
-      border:2px solid rgba(235,240,255,.75);
-      box-shadow:0 0 0 6px rgba(143,179,255,.10);
-      transform: translate(-50%,-50%);
-      pointer-events:none;
-      z-index:10000;
-      display:none;
+      border:2px solid rgba(154,163,183,.25);
+      border-top-color: rgba(235,240,255,.80);
+      animation: spin 900ms linear infinite;
+    }
+    @keyframes spin{ to{ transform: rotate(360deg); } }
+    #loadMsg{ font-weight:900; font-size:13px; }
+    #loadTag{
+      font-size:11px;
+      color: rgba(154,163,183,.80);
+      font-family: var(--mono);
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border2);
+      background: rgba(7,8,11,.35);
     }
 
-    /* force-hide system cursor only when data-cursor="custom" */
-    html[data-cursor="custom"], html[data-cursor="custom"] * { cursor:none !important; }
+    /* Responsive */
+    @media (max-width: 1060px){
+      .layout{ grid-template-columns: 300px 1fr 280px; }
+    }
+    @media (max-width: 940px){
+      .layout{ grid-template-columns: 1fr; }
+      .panel.right{ display:none; }
+      .panel.left{ display:none; }
+      .topLeft{ min-width: 0; }
+    }
+    @media (max-width: 860px){
+      .loginCard{ grid-template-columns:1fr; }
+      .loginHero{ border-right:none; border-bottom:1px solid var(--border2); }
+    }
   </style>
 </head>
-
 <body>
-  <!-- custom cursor -->
+
+  <!-- Custom cursor -->
   <div id="cursor"></div>
 
-  <!-- login -->
+  <!-- LOGIN -->
   <div id="loginWrap">
-    <div id="loginCard">
-      <div class="card">
-        <div class="h1">tonkotsu.online</div>
-        <div class="sub">
-          Compact black chat client. Beta build. If anything breaks, check the browser console + server logs.
+    <div class="loginCard">
+      <div class="loginHero">
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            <h1>tonkotsu.online</h1>
+            <div style="color:rgba(154,163,183,.75);font-size:12px;margin-top:2px">compact • black • realtime</div>
+          </div>
         </div>
-        <div class="beta"><span class="betaDot"></span><span>beta / early access</span></div>
-
-        <div class="field">
-          <div class="label">Username</div>
-          <input id="loginUser" class="input" placeholder="username" autocomplete="username" />
+        <div class="tag">
+          A Discord-like mini chat with: global chat, DMs, groups, presence, profiles, reports, and red ping mentions.
+          <div style="margin-top:12px;color:rgba(154,163,183,.78)">
+            Tip: Right-click messages for <b>Edit / Delete / Report</b>. Click names to open profiles.
+          </div>
         </div>
-        <div class="field">
-          <div class="label">Password</div>
-          <input id="loginPass" class="input" placeholder="password" type="password" autocomplete="current-password" />
+        <div class="pillRow">
+          <div class="pill">Right click menus</div>
+          <div class="pill">Presence modes</div>
+          <div class="pill">Custom status</div>
+          <div class="pill">Badges</div>
+          <div class="pill">Groups + invite</div>
+          <div class="pill">Mentions = red pings</div>
         </div>
-
-        <div class="row">
-          <button id="btnLogin" class="btn primary">Sign in</button>
-          <button id="btnGuest" class="btn">Guest</button>
-        </div>
-
-        <div id="loginMsg" class="loginMsg">Sign in or use Guest.</div>
       </div>
 
-      <div class="card">
-        <div style="font-weight:900; font-size:14px;">Info</div>
-        <div class="sub" style="margin-top:10px;">
-          • No profile pictures anywhere.<br/>
-          • Right-click messages to Edit/Delete (1 min) or Report to your moderation bot.<br/>
-          • Online users list is unique per account (multiple tabs won’t duplicate).<br/>
-          • Cooldown bar prevents spam; red shake on violation.<br/>
-          • XP system + leaderboard endpoint on server (wired, optional UI later).
+      <div class="loginForm">
+        <div>
+          <div class="fieldLabel">USERNAME</div>
+          <input id="loginUser" class="input" autocomplete="username" placeholder="e.g. fishyx1" />
         </div>
-        <div style="margin-top:14px; color:var(--muted2); font-size:12px;">
-          GitHub / Ko-fi links are in the bootstrap response if you want to render them later.
+        <div>
+          <div class="fieldLabel">PASSWORD</div>
+          <input id="loginPass" class="input" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </div>
+
+        <div class="btnRow">
+          <button class="btn primary" id="btnLogin">Sign in</button>
+          <button class="btn" id="btnGuest">Guest</button>
+        </div>
+
+        <div id="loginMsg"></div>
+
+        <div style="margin-top:auto;color:rgba(154,163,183,.72);font-size:11px;line-height:1.5">
+          Guest notes: guests can DM anyone and create groups, but guests cannot add friends and cannot be added.
         </div>
       </div>
     </div>
   </div>
 
-  <!-- app -->
+  <!-- APP -->
   <div id="app">
-    <div id="shell">
-      <!-- left -->
-      <div id="leftPane" class="pane">
-        <div class="paneHead">
-          <div class="brand">Messages <small id="leftSub">global / dm / groups</small></div>
-          <div class="headBtns">
-            <button id="btnSettings" class="btn ghost" title="Settings">Settings</button>
-          </div>
+    <div class="appTop">
+      <div class="topLeft">
+        <div class="logo" style="width:32px;height:32px;border-radius:14px"></div>
+        <div class="topTitle">
+          <b>tonkotsu.online</b>
+          <span id="subtitle">connected</span>
         </div>
-        <div class="leftTools">
-          <div class="toolRow">
-            <button id="btnAddFriend" class="btn">+ friend</button>
-            <button id="btnNewGroup" class="btn">+ group</button>
-          </div>
-          <input id="searchThreads" class="input" placeholder="search…" />
-        </div>
-        <div id="threadList"></div>
       </div>
 
-      <!-- center -->
-      <div id="centerPane" class="pane">
-        <div class="paneHead">
-          <div class="brand">tonkotsu.online <small>beta</small></div>
-          <div class="headBtns">
-            <div class="pill" title="Presence">
-              <span id="presenceDot" class="pDot"></span>
-              <span id="presenceLabel">online</span>
+      <div class="topActions">
+        <div class="chip">
+          <span style="opacity:.8">online</span>
+          <b id="onlineCount" style="margin-left:6px">0</b>
+        </div>
+        <button class="btn" id="btnUser">Profile</button>
+        <button class="btn danger" id="btnLogout">Logout</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- LEFT -->
+      <div class="panel left">
+        <div class="panelHead">
+          <b>Threads</b>
+          <div class="mini">
+            <button class="btn" id="btnAddFriend" style="padding:8px 10px;border-radius:14px">Add</button>
+            <button class="btn" id="btnNewGroup" style="padding:8px 10px;border-radius:14px">Group</button>
+          </div>
+        </div>
+
+        <div class="leftBody">
+          <div class="searchWrap">
+            <input id="searchThreads" class="input" placeholder="Search threads…" />
+          </div>
+          <div id="threadList" class="threadList"></div>
+        </div>
+      </div>
+
+      <!-- CENTER -->
+      <div class="panel center">
+        <div class="panelHead">
+          <div style="display:flex;flex-direction:column;line-height:1.1">
+            <b id="centerH">Global</b>
+            <div id="centerS" style="font-size:11px;color:rgba(154,163,183,.78)">Public chat</div>
+          </div>
+
+          <div class="mini" style="gap:10px">
+            <div class="chip">
+              <span id="presenceDot" class="dot" style="width:9px;height:9px"></span>
+              <span id="presenceLabel" style="font-weight:900">online</span>
             </div>
-            <button id="btnUser" class="btn">Profile</button>
-            <button id="btnLogout" class="btn danger">Logout</button>
+
+            <button class="btn" id="btnPresenceOnline" style="padding:8px 10px;border-radius:14px">On</button>
+            <button class="btn" id="btnPresenceIdle" style="padding:8px 10px;border-radius:14px">Idle</button>
+            <button class="btn" id="btnPresenceDnd" style="padding:8px 10px;border-radius:14px">DND</button>
+            <button class="btn" id="btnPresenceInv" style="padding:8px 10px;border-radius:14px">Inv</button>
+
+            <button class="btn" id="btnSettings" style="padding:8px 10px;border-radius:14px">⚙</button>
           </div>
         </div>
 
-        <div id="centerHead">
-          <div id="centerH">Global</div>
-          <div id="centerS">Public chat</div>
-        </div>
+        <div id="centerBody" class="centerBody"></div>
 
-        <div id="centerBody"></div>
+        <div id="composer" class="composer">
+          <input id="msgInput" class="input" placeholder="Message…" />
+          <button id="btnSend" class="btn primary">Send</button>
 
-        <div id="composer">
-          <div id="composerRow">
-            <textarea id="msgInput" class="input" placeholder="Message…"></textarea>
-            <button id="btnSend" class="btn primary">Send</button>
-          </div>
-          <div id="cooldownRow">
+          <div class="cooldownWrap" id="cooldownWrap">
             <div id="cooldownText"></div>
-            <div id="cooldownTrack"><div id="cooldownBar"></div></div>
-          </div>
-          <div id="typingText" style="color:var(--muted2); font-size:12px; min-height:14px;"></div>
-        </div>
-      </div>
-
-      <!-- right -->
-      <div id="rightPane" class="pane">
-        <div class="paneHead">
-          <div class="brand">Online <small id="onlineCount">0</small></div>
-          <div class="headBtns">
-            <button id="btnPresenceOnline" class="btn ghost">online</button>
-            <button id="btnPresenceIdle" class="btn ghost">idle</button>
-            <button id="btnPresenceDnd" class="btn ghost">dnd</button>
-            <button id="btnPresenceInv" class="btn ghost">invisible</button>
+            <div id="cooldownBar"></div>
           </div>
         </div>
-        <div id="onlineUsers"></div>
+      </div>
+
+      <!-- RIGHT -->
+      <div class="panel right">
+        <div class="panelHead">
+          <b>Online</b>
+          <div class="mini">
+            <span style="color:rgba(154,163,183,.75)">presence + status</span>
+          </div>
+        </div>
+        <div id="onlineUsers" class="rightBody"></div>
       </div>
     </div>
   </div>
 
-  <!-- loading -->
-  <div id="loading">
-    <div id="loadCard">
-      <div id="loadMsg">Loading…</div>
-      <div id="loadTag">boot</div>
-    </div>
-  </div>
-
-  <!-- modal -->
-  <div id="backdrop">
-    <div id="modal">
-      <div id="modalHead">
-        <div id="modalTitle"></div>
-        <button id="modalClose">×</button>
-      </div>
-      <div id="modalBody"></div>
-      <div id="modalFoot"></div>
-    </div>
-  </div>
-
-  <!-- context menu -->
+  <!-- Context menu -->
   <div id="ctx"></div>
 
+  <!-- Modal -->
+  <div id="backdrop">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modalHead">
+        <b id="modalTitle"></b>
+        <button id="modalClose" aria-label="Close">✕</button>
+      </div>
+      <div class="modalBody" id="modalBody"></div>
+      <div class="modalFoot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <div class="loadCard">
+      <div class="loadRow">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="spinner"></div>
+          <div id="loadMsg">Loading…</div>
+        </div>
+        <div id="loadTag">boot</div>
+      </div>
+      <div style="margin-top:10px;color:rgba(154,163,183,.75);font-size:12px;line-height:1.5">
+        If it gets stuck, refresh once. Duplicate refresh loops are blocked.
+      </div>
+    </div>
+  </div>
+
+  <!-- Socket.IO (served by your server) -->
   <script src="/socket.io/socket.io.js"></script>
+  <!-- Your app script -->
   <script src="/script.js"></script>
+</body>
+</html>
+    .ctxItem.danger:hover
 </body>
 </html>
