@@ -1,15 +1,11 @@
 'use strict';
-
 /**
- * tonkotsu.online
- * server.js (Node ONLY): Express + Socket.IO + API
- * - No window / DOM references here.
+ * server.js (Node ONLY) — Express + Socket.IO + API
+ * ✅ No window / DOM references.
  */
-
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -21,14 +17,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
-// Optional: comma-separated usernames that get special badges.
 const BETA_USERS = new Set((process.env.BETA_USERS || '').split(',').map(s => s.trim()).filter(Boolean));
 const EARLY_ACCESS_USERS = new Set((process.env.EARLY_ACCESS_USERS || '').split(',').map(s => s.trim()).filter(Boolean));
 const ANNOUNCEMENT_USERS = new Set((process.env.ANNOUNCEMENT_USERS || '').split(',').map(s => s.trim()).filter(Boolean));
 
-// Rate / cooldown (ms)
 const COOLDOWN_GUEST_GLOBAL = 5000;
 const COOLDOWN_USER_GLOBAL = 3000;
+const EDIT_WINDOW = 60 * 1000;
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -37,11 +32,8 @@ function readJson(file, fallback) {
     const p = path.join(DATA_DIR, file);
     if (!fs.existsSync(p)) return fallback;
     return JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch {
-    return fallback;
-  }
+  } catch { return fallback; }
 }
-
 function writeJson(file, data) {
   const p = path.join(DATA_DIR, file);
   const tmp = p + '.tmp';
@@ -50,9 +42,9 @@ function writeJson(file, data) {
 }
 
 const db = {
-  users: readJson('users.json', []),           // [{id, username, passHash, bio, statusText, presence, badges, friends:[], createdAt}]
-  threads: readJson('threads.json', []),       // [{id, type:'global'|'dm'|'group', name, members:[userId], createdBy, createdAt}]
-  messages: readJson('messages.json', []),     // [{id, threadId, senderId, senderName, content, createdAt, editedAt, type, clientId}]
+  users: readJson('users.json', []),
+  threads: readJson('threads.json', []),
+  messages: readJson('messages.json', []),
 };
 
 function persist() {
@@ -61,20 +53,7 @@ function persist() {
   writeJson('messages.json', db.messages);
 }
 
-// Ensure global thread exists
-function ensureGlobalThread() {
-  let t = db.threads.find(x => x.type === 'global');
-  if (!t) {
-    t = { id: 'global', type: 'global', name: 'Global', members: [], createdBy: null, createdAt: Date.now() };
-    db.threads.unshift(t);
-    persist();
-  }
-}
-ensureGlobalThread();
-
-function uid(prefix='') {
-  return prefix + crypto.randomBytes(12).toString('hex');
-}
+function uid(prefix = '') { return prefix + crypto.randomBytes(12).toString('hex'); }
 
 function sanitizeUsername(name) {
   const s = (name || '').trim();
@@ -82,28 +61,30 @@ function sanitizeUsername(name) {
   return s;
 }
 
-function signToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+function signToken(payload) { return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' }); }
+function verifyToken(token) { try { return jwt.verify(token, JWT_SECRET); } catch { return null; } }
+
+function stableColor(username) {
+  const h = crypto.createHash('sha1').update(String(username)).digest('hex').slice(0, 8);
+  const n = parseInt(h, 16);
+  const hue = n % 360;
+  return `hsl(${hue} 62% 62%)`;
 }
 
-function verifyToken(token) {
-  try { return jwt.verify(token, JWT_SECRET); } catch { return null; }
-}
-
-function getUserPublic(u) {
-  return {
-    id: u.id,
-    username: u.username,
-    bio: u.bio || '',
-    statusText: u.statusText || '',
-    presence: u.presence || 'online', // online|idle|dnd|invisible
-    badges: Array.isArray(u.badges) ? u.badges : [],
-    isGuest: !!u.isGuest,
-    createdAt: u.createdAt,
-  };
+function normalizeUser(user) {
+  user.bio = user.bio || '';
+  user.statusText = user.statusText || '';
+  user.presence = user.presence || 'online';
+  user.badges = Array.isArray(user.badges) ? user.badges : [];
+  user.friends = Array.isArray(user.friends) ? user.friends : [];
+  user.blocked = Array.isArray(user.blocked) ? user.blocked : [];
+  user.friendRequestsIn = Array.isArray(user.friendRequestsIn) ? user.friendRequestsIn : [];
+  user.friendRequestsOut = Array.isArray(user.friendRequestsOut) ? user.friendRequestsOut : [];
+  user.color = user.color || stableColor(user.username);
 }
 
 function ensureBadges(user) {
+  normalizeUser(user);
   const set = new Set(user.badges || []);
   if (user.isGuest) set.add('GUEST');
   if (BETA_USERS.has(user.username)) set.add('BETA');
@@ -112,14 +93,86 @@ function ensureBadges(user) {
   user.badges = Array.from(set);
 }
 
-function findUserById(id) {
-  return db.users.find(u => u.id === id);
+function getUserPublic(u) {
+  normalizeUser(u);
+  ensureBadges(u);
+  return {
+    id: u.id,
+    username: u.username,
+    bio: u.bio,
+    statusText: u.statusText,
+    presence: u.presence,
+    badges: u.badges,
+    isGuest: !!u.isGuest,
+    createdAt: u.createdAt,
+    color: u.color,
+  };
 }
 
+function findUserById(id) { return db.users.find(u => u.id === id); }
 function findUserByName(username) {
-  return db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  return db.users.find(u => u.username.toLowerCase() === String(username || '').toLowerCase());
 }
 
+function ensureGlobalThread() {
+  let t = db.threads.find(x => x.type === 'global');
+  if (!t) {
+    t = { id: 'global', type: 'global', name: 'Global', members: [], createdBy: null, createdAt: Date.now() };
+    db.threads.unshift(t);
+  }
+}
+ensureGlobalThread();
+
+function threadById(threadId) { return db.threads.find(t => t.id === threadId); }
+function threadAllowed(threadId, userId) {
+  if (threadId === 'global') return true;
+  const t = threadById(threadId);
+  if (!t) return false;
+  return Array.isArray(t.members) && t.members.includes(userId);
+}
+
+function normalizeGroup(thread) {
+  if (thread.type !== 'group') return;
+  thread.roles = thread.roles && typeof thread.roles === 'object' ? thread.roles : {};
+  if (thread.createdBy && !thread.roles[thread.createdBy]) thread.roles[thread.createdBy] = 'owner';
+}
+function isGroupOwner(thread, userId) { normalizeGroup(thread); return thread.roles && thread.roles[userId] === 'owner'; }
+
+function isBlocked(aUser, bUserId) { normalizeUser(aUser); return aUser.blocked.includes(bUserId); }
+function eitherBlocked(aId, bId) {
+  const a = findUserById(aId);
+  const b = findUserById(bId);
+  if (!a || !b) return false;
+  return isBlocked(a, bId) || isBlocked(b, aId);
+}
+
+// profanity / explicit filter (best-effort, server-side)
+const BAD_PATTERNS = [
+  /n[\W_]*[i1l!][\W_]*g[\W_]*g[\W_]*[e3][\W_]*r/gi,
+  /\b(porn|p0rn|hentai|xxx|xvideos|pornhub|onlyfans)\b/gi,
+  /\b(fuck|f\W*u\W*c\W*k|shit|bitch|cunt|dick|pussy|rape)\b/gi,
+];
+function censorText(s) {
+  let out = String(s || '');
+  for (const re of BAD_PATTERNS) out = out.replace(re, (m) => '*'.repeat(Math.min(8, Math.max(4, m.length))));
+  return out;
+}
+
+// links blocked in global
+const URL_RE = /(?:https?:\/\/|www\.)[^\s]+/i;
+const DOMAIN_RE = /\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|co|ca|uk|ru|xyz|app|dev|site|online|link|tv|cc)\b/i;
+function containsLink(s) {
+  const t = String(s || '');
+  return URL_RE.test(t) || DOMAIN_RE.test(t);
+}
+
+// Express
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '256kb' }));
+app.use(express.static(PUBLIC_DIR));
+
+// auth middleware
 function authMiddleware(req, res, next) {
   const hdr = req.headers.authorization || '';
   const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
@@ -127,23 +180,21 @@ function authMiddleware(req, res, next) {
   if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
   const user = findUserById(decoded.id);
   if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  normalizeUser(user);
   ensureBadges(user);
   req.user = user;
   next();
 }
 
-const app = express();
-app.use(cors());
-app.use(express.json({ limit: '256kb' }));
-app.use(express.static(PUBLIC_DIR));
-
-// --------- API ---------
-
+// register
 app.post('/api/register', async (req, res) => {
   const username = sanitizeUsername(req.body.username);
-  const password = (req.body.password || '').toString();
+  const password = String(req.body.password || '');
+  const password2 = String(req.body.password2 || '');
+
   if (!username) return res.status(400).json({ error: 'Username must be 2-20 chars: letters, numbers, underscore.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (password !== password2) return res.status(400).json({ error: 'Passwords do not match.' });
   if (findUserByName(username)) return res.status(409).json({ error: 'Username already taken.' });
 
   const passHash = await bcrypt.hash(password, 10);
@@ -154,46 +205,52 @@ app.post('/api/register', async (req, res) => {
     bio: '',
     statusText: '',
     presence: 'online',
-    badges: [],
+    badges: ['BETA'],
     friends: [],
+    blocked: [],
+    friendRequestsIn: [],
+    friendRequestsOut: [],
     isGuest: false,
     createdAt: Date.now(),
+    color: stableColor(username),
   };
-  // Default badge for new users (optional): BETA
-  user.badges.push('BETA');
   ensureBadges(user);
-
   db.users.push(user);
   persist();
 
   const token = signToken({ id: user.id });
-  res.json({ token, user: getUserPublic(user) });
+  res.json({ token, user: getUserPublic(user), isFirstAccountLogin: true });
 });
 
+// login
 app.post('/api/login', async (req, res) => {
   const username = sanitizeUsername(req.body.username);
-  const password = (req.body.password || '').toString();
+  const password = String(req.body.password || '');
   if (!username || !password) return res.status(400).json({ error: 'Missing credentials.' });
-  const user = findUserByName(username);
-  if (!user || user.isGuest) return res.status(401).json({ error: 'Invalid credentials.' });
-  const ok = await bcrypt.compare(password, user.passHash);
-  if (!ok) return res.status(401).json({ error: 'Invalid credentials.' });
 
+  const user = findUserByName(username);
+  if (!user || user.isGuest) {
+    return res.status(404).json({ error: 'This account does not exist. Use Register to create one or Guest to try the app.' });
+  }
+
+  const ok = await bcrypt.compare(password, user.passHash);
+  if (!ok) return res.status(401).json({ error: 'Wrong password.' });
+
+  normalizeUser(user);
   ensureBadges(user);
   persist();
+
   const token = signToken({ id: user.id });
   res.json({ token, user: getUserPublic(user) });
 });
 
+// guest
 app.post('/api/guest', (req, res) => {
-  // Guests are ephemeral but we still store them so presence + DMs rules can apply.
   const base = 'guest' + Math.floor(Math.random() * 10000);
   let username = base;
   let i = 0;
-  while (findUserByName(username)) {
-    i++;
-    username = base + '_' + i;
-  }
+  while (findUserByName(username)) { i++; username = base + '_' + i; }
+
   const user = {
     id: uid('g_'),
     username,
@@ -203,8 +260,12 @@ app.post('/api/guest', (req, res) => {
     presence: 'online',
     badges: ['GUEST'],
     friends: [],
+    blocked: [],
+    friendRequestsIn: [],
+    friendRequestsOut: [],
     isGuest: true,
     createdAt: Date.now(),
+    color: stableColor(username),
   };
   ensureBadges(user);
   db.users.push(user);
@@ -215,174 +276,295 @@ app.post('/api/guest', (req, res) => {
 });
 
 app.get('/api/me', authMiddleware, (req, res) => {
-  res.json({ user: getUserPublic(req.user) });
+  res.json({
+    user: getUserPublic(req.user),
+    friends: req.user.friends,
+    blocked: req.user.blocked,
+    friendRequestsIn: req.user.friendRequestsIn,
+    friendRequestsOut: req.user.friendRequestsOut,
+  });
 });
 
 app.post('/api/me/profile', authMiddleware, (req, res) => {
-  const bio = (req.body.bio || '').toString().slice(0, 240);
-  const statusText = (req.body.statusText || '').toString().slice(0, 64);
-  const presence = (req.body.presence || '').toString();
+  const bio = String(req.body.bio || '').slice(0, 240);
+  const statusText = String(req.body.statusText || '').slice(0, 64);
+  const presence = String(req.body.presence || '');
   const validPresence = new Set(['online', 'idle', 'dnd', 'invisible']);
 
-  req.user.bio = bio;
-  req.user.statusText = statusText;
+  req.user.bio = censorText(bio);
+  req.user.statusText = censorText(statusText);
   if (validPresence.has(presence)) req.user.presence = presence;
 
   ensureBadges(req.user);
   persist();
 
-  // Broadcast presence/profile change
   io.emit('presence:update', { user: getUserPublic(req.user) });
+  io.emit('presence:list', { users: getOnlinePublicList() });
 
   res.json({ user: getUserPublic(req.user) });
 });
 
-app.get('/api/users/search', authMiddleware, (req, res) => {
-  const q = (req.query.q || '').toString().trim().toLowerCase();
-  if (!q) return res.json({ users: [] });
-  const out = db.users
-    .filter(u => !u.isGuest)
-    .filter(u => u.username.toLowerCase().includes(q))
-    .slice(0, 10)
-    .map(getUserPublic);
-  res.json({ users: out });
-});
-
-app.post('/api/friends/add', authMiddleware, (req, res) => {
+// friends
+app.post('/api/friends/request', authMiddleware, (req, res) => {
   if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot add friends.' });
-  const targetName = (req.body.username || '').toString().trim();
+  const targetName = String(req.body.username || '').trim();
   const target = findUserByName(targetName);
   if (!target || target.isGuest) return res.status(404).json({ error: 'User not found.' });
-  if (target.id === req.user.id) return res.status(400).json({ error: 'Cannot add yourself.' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Cannot friend yourself.' });
 
-  req.user.friends = Array.isArray(req.user.friends) ? req.user.friends : [];
-  target.friends = Array.isArray(target.friends) ? target.friends : [];
+  normalizeUser(target);
+  if (eitherBlocked(req.user.id, target.id)) return res.status(403).json({ error: 'Cannot friend (blocked).' });
 
-  if (!req.user.friends.includes(target.id)) req.user.friends.push(target.id);
-  if (!target.friends.includes(req.user.id)) target.friends.push(req.user.id);
+  if (req.user.friends.includes(target.id)) return res.json({ ok: true, already: true });
+
+  if (!req.user.friendRequestsOut.includes(target.id)) req.user.friendRequestsOut.push(target.id);
+  if (!target.friendRequestsIn.includes(req.user.id)) target.friendRequestsIn.push(req.user.id);
+
+  persist();
+
+  const dmId = ensureDMThread(req.user.id, target.id);
+  const msg = makeMessage({
+    threadId: dmId,
+    sender: req.user,
+    content: `${req.user.username} sent you a friend request.`,
+    type: 'friend_request',
+    meta: { fromId: req.user.id }
+  });
+  db.messages.push(msg);
+  persist();
+  io.to('thread:' + dmId).emit('message:new', { message: msg });
+
+  res.json({ ok: true });
+});
+
+app.post('/api/friends/respond', authMiddleware, (req, res) => {
+  if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot do this.' });
+  const fromId = String(req.body.fromId || '');
+  const accept = !!req.body.accept;
+
+  const from = findUserById(fromId);
+  if (!from || from.isGuest) return res.status(404).json({ error: 'User not found.' });
+  normalizeUser(from);
+
+  if (!req.user.friendRequestsIn.includes(fromId)) return res.status(400).json({ error: 'No such request.' });
+
+  req.user.friendRequestsIn = req.user.friendRequestsIn.filter(x => x !== fromId);
+  from.friendRequestsOut = from.friendRequestsOut.filter(x => x !== req.user.id);
+
+  if (accept) {
+    if (!req.user.friends.includes(fromId)) req.user.friends.push(fromId);
+    if (!from.friends.includes(req.user.id)) from.friends.push(req.user.id);
+  }
+  persist();
+
+  const dmId = ensureDMThread(req.user.id, fromId);
+  const msg = makeMessage({
+    threadId: dmId,
+    sender: req.user,
+    content: accept ? `✅ You are now friends with ${from.username}.` : `❌ Friend request declined.`,
+    type: 'system',
+    meta: { friendRespond: true, accept }
+  });
+  db.messages.push(msg);
+  persist();
+  io.to('thread:' + dmId).emit('message:new', { message: msg });
+
+  res.json({ ok: true });
+});
+
+// block
+app.post('/api/block', authMiddleware, (req, res) => {
+  const targetName = String(req.body.username || '').trim();
+  const target = findUserByName(targetName);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Cannot block yourself.' });
+
+  normalizeUser(req.user);
+  if (!req.user.blocked.includes(target.id)) req.user.blocked.push(target.id);
+
+  // clean relations
+  req.user.friendRequestsIn = req.user.friendRequestsIn.filter(x => x !== target.id);
+  req.user.friendRequestsOut = req.user.friendRequestsOut.filter(x => x !== target.id);
+  req.user.friends = req.user.friends.filter(x => x !== target.id);
+
+  normalizeUser(target);
+  target.friendRequestsIn = target.friendRequestsIn.filter(x => x !== req.user.id);
+  target.friendRequestsOut = target.friendRequestsOut.filter(x => x !== req.user.id);
+  target.friends = target.friends.filter(x => x !== req.user.id);
 
   persist();
   res.json({ ok: true });
 });
 
+app.post('/api/unblock', authMiddleware, (req, res) => {
+  const targetName = String(req.body.username || '').trim();
+  const target = findUserByName(targetName);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  normalizeUser(req.user);
+  req.user.blocked = req.user.blocked.filter(x => x !== target.id);
+  persist();
+  res.json({ ok: true });
+});
+
+// threads list
 app.get('/api/threads', authMiddleware, (req, res) => {
   const myId = req.user.id;
-
-  // Members for global is everyone; for dm/group it is stored.
   const threads = db.threads
     .filter(t => t.type === 'global' || (Array.isArray(t.members) && t.members.includes(myId)))
     .map(t => {
       if (t.type === 'dm') {
         const otherId = t.members.find(x => x !== myId);
         const other = otherId ? findUserById(otherId) : null;
-        return {
-          id: t.id,
-          type: t.type,
-          name: other ? other.username : 'DM',
-          members: t.members,
-          createdAt: t.createdAt,
-        };
+        return { id: t.id, type: t.type, name: other ? other.username : 'DM', members: t.members, createdAt: t.createdAt };
       }
-      return {
-        id: t.id,
-        type: t.type,
-        name: t.name,
-        members: t.members || [],
-        createdAt: t.createdAt,
-      };
+      if (t.type === 'group') normalizeGroup(t);
+      return { id: t.id, type: t.type, name: t.name, members: t.members || [], createdAt: t.createdAt, roles: t.roles || {} };
     });
-
   res.json({ threads });
 });
 
-app.post('/api/threads/dm', authMiddleware, (req, res) => {
-  if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot DM.' });
-  const targetName = (req.body.username || '').toString().trim();
-  const target = findUserByName(targetName);
-  if (!target) return res.status(404).json({ error: 'User not found.' });
-  if (target.id === req.user.id) return res.status(400).json({ error: 'Cannot DM yourself.' });
-
-  // Find existing dm
+function ensureDMThread(aId, bId) {
   let t = db.threads.find(x =>
     x.type === 'dm' &&
     Array.isArray(x.members) &&
     x.members.length === 2 &&
-    x.members.includes(req.user.id) &&
-    x.members.includes(target.id)
+    x.members.includes(aId) &&
+    x.members.includes(bId)
   );
   if (!t) {
-    t = { id: uid('t_'), type: 'dm', name: '', members: [req.user.id, target.id], createdBy: req.user.id, createdAt: Date.now() };
+    t = { id: uid('t_'), type: 'dm', name: '', members: [aId, bId], createdBy: aId, createdAt: Date.now() };
     db.threads.push(t);
     persist();
   }
+  return t.id;
+}
 
-  res.json({ threadId: t.id });
+app.post('/api/threads/dm', authMiddleware, (req, res) => {
+  if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot DM.' });
+  const targetName = String(req.body.username || '').trim();
+  const target = findUserByName(targetName);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Cannot DM yourself.' });
+  if (eitherBlocked(req.user.id, target.id)) return res.status(403).json({ error: 'DM blocked.' });
+
+  const threadId = ensureDMThread(req.user.id, target.id);
+  res.json({ threadId });
 });
 
 app.post('/api/threads/group', authMiddleware, (req, res) => {
   if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot create groups.' });
-  const name = (req.body.name || '').toString().trim().slice(0, 40);
-  const members = Array.isArray(req.body.members) ? req.body.members : [];
-  const memberIds = Array.from(new Set([req.user.id, ...members])).slice(0, 25);
-
-  const validMembers = memberIds
-    .map(id => findUserById(id))
-    .filter(Boolean)
-    .filter(u => !u.isGuest) // guests can't be in groups
-    .map(u => u.id);
-
+  const name = censorText(String(req.body.name || '').trim().slice(0, 40));
   if (!name) return res.status(400).json({ error: 'Group name required.' });
-  if (validMembers.length < 2) return res.status(400).json({ error: 'Need at least 2 registered members.' });
 
-  const t = { id: uid('t_'), type: 'group', name, members: validMembers, createdBy: req.user.id, createdAt: Date.now() };
+  const t = { id: uid('t_'), type: 'group', name, members: [req.user.id], roles: { [req.user.id]: 'owner' }, createdBy: req.user.id, createdAt: Date.now() };
   db.threads.push(t);
   persist();
-
   res.json({ threadId: t.id });
 });
 
+// group invites
+app.post('/api/groups/invite', authMiddleware, (req, res) => {
+  if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot invite.' });
+
+  const groupId = String(req.body.groupId || '');
+  const targetId = String(req.body.userId || '');
+  const group = threadById(groupId);
+  if (!group || group.type !== 'group') return res.status(404).json({ error: 'Group not found.' });
+  normalizeGroup(group);
+
+  if (!threadAllowed(groupId, req.user.id)) return res.status(403).json({ error: 'Forbidden.' });
+  if (!isGroupOwner(group, req.user.id)) return res.status(403).json({ error: 'Only owner can invite (for now).' });
+
+  const target = findUserById(targetId);
+  if (!target || target.isGuest) return res.status(404).json({ error: 'User not found.' });
+
+  normalizeUser(req.user);
+  if (!req.user.friends.includes(targetId)) return res.status(403).json({ error: 'You must be friends to invite.' });
+  if (eitherBlocked(req.user.id, targetId)) return res.status(403).json({ error: 'Invite blocked.' });
+
+  if (group.members.includes(targetId)) return res.json({ ok: true, already: true });
+
+  const dmId = ensureDMThread(req.user.id, targetId);
+  const msg = makeMessage({
+    threadId: dmId,
+    sender: req.user,
+    content: `Invite to join "${group.name}"`,
+    type: 'invite',
+    meta: { groupId: group.id, groupName: group.name, invitedId: targetId, inviterId: req.user.id }
+  });
+
+  db.messages.push(msg);
+  persist();
+  io.to('thread:' + dmId).emit('message:new', { message: msg });
+
+  res.json({ ok: true });
+});
+
+app.post('/api/groups/invite/respond', authMiddleware, (req, res) => {
+  if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot join groups.' });
+
+  const groupId = String(req.body.groupId || '');
+  const inviterId = String(req.body.inviterId || '');
+  const accept = !!req.body.accept;
+
+  const group = threadById(groupId);
+  if (!group || group.type !== 'group') return res.status(404).json({ error: 'Group not found.' });
+  normalizeGroup(group);
+
+  if (accept) {
+    if (eitherBlocked(req.user.id, inviterId)) return res.status(403).json({ error: 'Blocked.' });
+    if (!group.members.includes(req.user.id)) group.members.push(req.user.id);
+    group.roles = group.roles || {};
+    if (!group.roles[req.user.id]) group.roles[req.user.id] = 'member';
+    persist();
+  }
+
+  const dmId = inviterId ? ensureDMThread(req.user.id, inviterId) : null;
+  if (dmId) {
+    const msg = makeMessage({
+      threadId: dmId,
+      sender: req.user,
+      content: accept ? `✅ Joined "${group.name}".` : `❌ Invite declined.`,
+      type: 'system',
+      meta: { inviteRespond: true, groupId, accept }
+    });
+    db.messages.push(msg);
+    persist();
+    io.to('thread:' + dmId).emit('message:new', { message: msg });
+  }
+
+  res.json({ ok: true });
+});
+
+// messages list
 app.get('/api/messages', authMiddleware, (req, res) => {
-  const threadId = (req.query.threadId || '').toString();
+  const threadId = String(req.query.threadId || '');
   if (!threadId) return res.status(400).json({ error: 'threadId required.' });
 
-  const thread = db.threads.find(t => t.id === threadId);
+  const thread = threadById(threadId);
   if (!thread) return res.status(404).json({ error: 'Thread not found.' });
 
   const myId = req.user.id;
-  const allowed =
-    thread.type === 'global' ||
-    (Array.isArray(thread.members) && thread.members.includes(myId));
-
+  const allowed = thread.type === 'global' || (Array.isArray(thread.members) && thread.members.includes(myId));
   if (!allowed) return res.status(403).json({ error: 'Forbidden.' });
 
   const limit = Math.max(1, Math.min(200, parseInt(req.query.limit || '80', 10) || 80));
-  const before = parseInt(req.query.before || '0', 10) || 0;
-
   let msgs = db.messages.filter(m => m.threadId === threadId);
   msgs.sort((a, b) => a.createdAt - b.createdAt);
-  if (before > 0) msgs = msgs.filter(m => m.createdAt < before);
-
   msgs = msgs.slice(-limit);
-
   res.json({ messages: msgs });
 });
 
+// announcements
 app.post('/api/announce', authMiddleware, (req, res) => {
-  // Send an announcement into global as special message.
   ensureBadges(req.user);
   if (req.user.isGuest) return res.status(403).json({ error: 'Guests cannot announce.' });
   if (!req.user.badges.includes('ANNOUNCEMENT')) return res.status(403).json({ error: 'Missing ANNOUNCEMENT badge.' });
 
-  const content = (req.body.content || '').toString().trim().slice(0, 1500);
+  const content = censorText(String(req.body.content || '').trim().slice(0, 1500));
   if (!content) return res.status(400).json({ error: 'Empty announcement.' });
 
-  const msg = makeMessage({
-    threadId: 'global',
-    sender: req.user,
-    content,
-    type: 'announcement',
-    clientId: null,
-  });
+  const msg = makeMessage({ threadId: 'global', sender: req.user, content, type: 'announcement', clientId: null, meta: null });
   db.messages.push(msg);
   persist();
   io.to('thread:global').emit('message:new', { message: msg });
@@ -390,30 +572,31 @@ app.post('/api/announce', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// --------- Socket.IO ---------
-
+// Socket.IO
 const httpServer = require('http').createServer(app);
-const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
-});
+const io = new Server(httpServer, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-// In-memory presence map (socketId -> userId) and user status.
-const socketsByUser = new Map(); // userId -> Set(socketId)
-const onlineUsers = new Map(); // userId -> { lastSeen, presence }
+const socketsByUser = new Map();
+const onlineUsers = new Map();
+
+function effectivePresence(u, info) {
+  if (u.presence === 'invisible') return 'invisible';
+  if (info && info.idleAt) return 'idle';
+  return u.presence || 'online';
+}
 
 function getOnlinePublicList() {
   const out = [];
-  for (const [uid, info] of onlineUsers.entries()) {
-    const u = findUserById(uid);
+  for (const [userId, info] of onlineUsers.entries()) {
+    const u = findUserById(userId);
     if (!u) continue;
+    normalizeUser(u);
     ensureBadges(u);
-    out.push({
-      user: getUserPublic(u),
-      lastSeen: info.lastSeen,
-    });
+    const pres = effectivePresence(u, info);
+    if (pres === 'invisible') continue;
+    out.push({ user: { ...getUserPublic(u), presence: pres }, lastSeen: info.lastSeen });
   }
-  // Sort: online > idle > dnd > invisible, then username
-  const rank = { online: 0, idle: 1, dnd: 2, invisible: 3 };
+  const rank = { online: 0, idle: 1, dnd: 2 };
   out.sort((a, b) => {
     const ra = rank[a.user.presence] ?? 9;
     const rb = rank[b.user.presence] ?? 9;
@@ -423,15 +606,17 @@ function getOnlinePublicList() {
   return out;
 }
 
-function makeMessage({ threadId, sender, content, type, clientId }) {
+function makeMessage({ threadId, sender, content, type, clientId, meta }) {
   const now = Date.now();
   return {
     id: uid('m_'),
     threadId,
     senderId: sender.id,
     senderName: sender.username,
+    senderColor: sender.color || stableColor(sender.username),
     content,
-    type: type || 'message', // message|announcement
+    type: type || 'message',
+    meta: meta || null,
     clientId: clientId || null,
     createdAt: now,
     editedAt: null,
@@ -439,21 +624,11 @@ function makeMessage({ threadId, sender, content, type, clientId }) {
   };
 }
 
-function threadAllowed(threadId, userId) {
-  if (threadId === 'global') return true;
-  const t = db.threads.find(x => x.id === threadId);
-  if (!t) return false;
-  if (t.type === 'global') return true;
-  return Array.isArray(t.members) && t.members.includes(userId);
-}
-
-// Dedup key: (senderId + clientId)
-const recentClientIds = new Map(); // key -> timestamp
+const recentClientIds = new Map();
 function isDuplicate(senderId, clientId) {
   if (!clientId) return false;
   const key = senderId + '|' + clientId;
   const now = Date.now();
-  // prune
   for (const [k, ts] of recentClientIds.entries()) {
     if (now - ts > 5 * 60 * 1000) recentClientIds.delete(k);
   }
@@ -462,8 +637,7 @@ function isDuplicate(senderId, clientId) {
   return false;
 }
 
-// Per-user cooldown timestamps
-const lastGlobalSend = new Map(); // userId -> ms
+const lastGlobalSend = new Map();
 
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
@@ -471,6 +645,7 @@ io.use((socket, next) => {
   if (!decoded) return next(new Error('unauthorized'));
   const user = findUserById(decoded.id);
   if (!user) return next(new Error('unauthorized'));
+  normalizeUser(user);
   ensureBadges(user);
   socket.user = user;
   next();
@@ -479,12 +654,10 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   const user = socket.user;
 
-  // Register socket
   if (!socketsByUser.has(user.id)) socketsByUser.set(user.id, new Set());
   socketsByUser.get(user.id).add(socket.id);
 
-  // Set online
-  onlineUsers.set(user.id, { lastSeen: Date.now(), presence: user.presence });
+  onlineUsers.set(user.id, { lastSeen: Date.now(), presence: user.presence, idleAt: null });
   io.emit('presence:list', { users: getOnlinePublicList() });
 
   socket.on('disconnect', () => {
@@ -493,17 +666,15 @@ io.on('connection', (socket) => {
       set.delete(socket.id);
       if (set.size === 0) socketsByUser.delete(user.id);
     }
-    // If no sockets remain, mark offline (remove from online list)
     if (!socketsByUser.has(user.id)) {
       onlineUsers.delete(user.id);
       io.emit('presence:list', { users: getOnlinePublicList() });
     }
   });
 
-  // Join a thread room
   socket.on('thread:join', (payload, cb) => {
     try {
-      const threadId = (payload && payload.threadId) ? String(payload.threadId) : '';
+      const threadId = String(payload?.threadId || '');
       if (!threadId) throw new Error('threadId required');
       if (!threadAllowed(threadId, user.id)) throw new Error('forbidden');
       socket.join('thread:' + threadId);
@@ -513,46 +684,67 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('thread:leave', (payload, cb) => {
-    const threadId = (payload && payload.threadId) ? String(payload.threadId) : '';
-    if (threadId) socket.leave('thread:' + threadId);
-    cb && cb({ ok: true });
-  });
-
   socket.on('presence:set', (payload, cb) => {
-    const presence = (payload && payload.presence) ? String(payload.presence) : '';
+    const presence = String(payload?.presence || '');
     const valid = new Set(['online', 'idle', 'dnd', 'invisible']);
     if (valid.has(presence)) {
       user.presence = presence;
       persist();
-      onlineUsers.set(user.id, { lastSeen: Date.now(), presence: user.presence });
+      const info = onlineUsers.get(user.id) || { lastSeen: Date.now(), idleAt: null };
+      info.lastSeen = Date.now();
+      info.presence = presence;
+      info.idleAt = (presence === 'idle') ? Date.now() : null;
+      onlineUsers.set(user.id, info);
       io.emit('presence:update', { user: getUserPublic(user) });
       io.emit('presence:list', { users: getOnlinePublicList() });
     }
     cb && cb({ ok: true });
   });
 
-  // Send message
+  socket.on('activity:ping', (_payload, cb) => {
+    const info = onlineUsers.get(user.id);
+    if (info) {
+      info.lastSeen = Date.now();
+      info.idleAt = null;
+      onlineUsers.set(user.id, info);
+      io.emit('presence:list', { users: getOnlinePublicList() });
+    }
+    cb && cb({ ok: true });
+  });
+
+  socket.on('activity:idle', (_payload, cb) => {
+    const info = onlineUsers.get(user.id);
+    if (info) {
+      info.lastSeen = Date.now();
+      info.idleAt = Date.now();
+      onlineUsers.set(user.id, info);
+      io.emit('presence:list', { users: getOnlinePublicList() });
+    }
+    cb && cb({ ok: true });
+  });
+
   socket.on('message:send', (payload, cb) => {
     try {
-      const threadId = String(payload.threadId || '');
-      const content = String(payload.content || '').trim();
-      const clientId = payload.clientId ? String(payload.clientId) : null;
+      const threadId = String(payload?.threadId || '');
+      let content = String(payload?.content || '').trim();
+      const clientId = payload?.clientId ? String(payload.clientId) : null;
 
       if (!threadId) throw new Error('threadId required');
       if (!content) throw new Error('Empty message');
       if (content.length > 1500) throw new Error('Message too long');
-      if (!threadAllowed(threadId, user.id)) throw new Error('Forbidden');
-      if (isDuplicate(user.id, clientId)) {
-        // Reply with existing-ish ack
-        cb && cb({ ok: true, duplicate: true });
-        return;
-      }
 
-      // Guest rules
+      if (!threadAllowed(threadId, user.id)) throw new Error('Forbidden');
+
       if (user.isGuest && threadId !== 'global') throw new Error('Guests cannot DM or join groups.');
 
-      // Cooldown only on global
+      const thr = threadById(threadId);
+      if (thr && thr.type === 'dm') {
+        const otherId = thr.members.find(x => x !== user.id);
+        if (otherId && eitherBlocked(user.id, otherId)) throw new Error('DM blocked.');
+      }
+
+      if (threadId === 'global' && containsLink(content)) throw new Error('Links are not allowed in global chat.');
+
       if (threadId === 'global') {
         const now = Date.now();
         const last = lastGlobalSend.get(user.id) || 0;
@@ -562,23 +754,27 @@ io.on('connection', (socket) => {
         lastGlobalSend.set(user.id, now);
       }
 
-      const msg = makeMessage({ threadId, sender: user, content, type: 'message', clientId });
+      content = censorText(content);
+
+      if (isDuplicate(user.id, clientId)) {
+        cb && cb({ ok: true, duplicate: true });
+        return;
+      }
+
+      const msg = makeMessage({ threadId, sender: user, content, type: 'message', clientId, meta: null });
       db.messages.push(msg);
       persist();
-
       io.to('thread:' + threadId).emit('message:new', { message: msg });
-
       cb && cb({ ok: true, message: msg });
     } catch (e) {
       cb && cb({ ok: false, error: e.message || 'error' });
     }
   });
 
-  // Edit message (within 60s)
   socket.on('message:edit', (payload, cb) => {
     try {
-      const messageId = String(payload.messageId || '');
-      const content = String(payload.content || '').trim();
+      const messageId = String(payload?.messageId || '');
+      let content = String(payload?.content || '').trim();
       if (!messageId) throw new Error('messageId required');
       if (!content) throw new Error('Empty');
       if (content.length > 1500) throw new Error('Too long');
@@ -588,23 +784,22 @@ io.on('connection', (socket) => {
       if (msg.senderId !== user.id) throw new Error('Forbidden');
       if (msg.deletedAt) throw new Error('Deleted');
       const now = Date.now();
-      if (now - msg.createdAt > 60 * 1000) throw new Error('Edit window expired');
+      if (now - msg.createdAt > EDIT_WINDOW) throw new Error('Edit window expired');
 
+      if (msg.threadId === 'global' && containsLink(content)) throw new Error('Links are not allowed in global chat.');
+
+      content = censorText(content);
       msg.content = content;
       msg.editedAt = now;
       persist();
-
       io.to('thread:' + msg.threadId).emit('message:edit', { messageId: msg.id, content: msg.content, editedAt: msg.editedAt });
       cb && cb({ ok: true });
-    } catch (e) {
-      cb && cb({ ok: false, error: e.message || 'error' });
-    }
+    } catch (e) { cb && cb({ ok: false, error: e.message || 'error' }); }
   });
 
-  // Delete message (within 60s)
   socket.on('message:delete', (payload, cb) => {
     try {
-      const messageId = String(payload.messageId || '');
+      const messageId = String(payload?.messageId || '');
       if (!messageId) throw new Error('messageId required');
 
       const msg = db.messages.find(m => m.id === messageId);
@@ -612,19 +807,14 @@ io.on('connection', (socket) => {
       if (msg.senderId !== user.id) throw new Error('Forbidden');
       if (msg.deletedAt) throw new Error('Already deleted');
       const now = Date.now();
-      if (now - msg.createdAt > 60 * 1000) throw new Error('Delete window expired');
+      if (now - msg.createdAt > EDIT_WINDOW) throw new Error('Delete window expired');
 
       msg.deletedAt = now;
       persist();
-
       io.to('thread:' + msg.threadId).emit('message:delete', { messageId: msg.id, deletedAt: msg.deletedAt });
       cb && cb({ ok: true });
-    } catch (e) {
-      cb && cb({ ok: false, error: e.message || 'error' });
-    }
+    } catch (e) { cb && cb({ ok: false, error: e.message || 'error' }); }
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`tonkotsu.online running on :${PORT}`);
-});
+httpServer.listen(PORT, () => console.log(`tonkotsu.online running on :${PORT}`));
